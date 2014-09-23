@@ -1,0 +1,7 @@
+{application,egol,
+             [{description,"EGOL - Erlang Game Of Life"},
+              {vsn,"0.0.1"},
+              {modules,[egol]},
+              {registered,[]},
+              {applications,[kernel,stdlib,gproc]},
+              {start_phases,[]}]}. 
