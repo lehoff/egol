@@ -9,6 +9,8 @@
          print/1,
          print_last/0]).
 
+-export([test/1]).
+
 
 -record(state,
         {size_x,
@@ -136,26 +138,7 @@ test(1) ->
 test(2) ->
   Full = [{0,0}, {1,0}, {2,0}, {2,1},{1,2}];
 test(3) ->
-  start(8,8,test(2));
-test({print,T}) ->
-  print(8,8,T);
-test(step) ->
-  step_all(8,8);
-test(run) ->
-  run_all(8,8);
-test(stop) ->
-  stop_all(8,8);
-test(4) ->
-  test(1),
-  timer:sleep(10),
-  test(2),
-%  percept_profile:start("egol-profile.dat", [procs]),
-  test(run),
-  timer:sleep(15000),
-  test(stop);
-test(5) ->
-  percept:profile("egol-profile.dat", {?MODULE, test, [3]}, [procs]).
-%  percept_profile:stop().
+  start(8,8,test(2)).
   
 
   
