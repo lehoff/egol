@@ -7,7 +7,8 @@
          run/1,
          pause/0,
          print/1,
-         print_last/0]).
+         print_last/0,
+         print_lag/0]).
 
 -export([test/1]).
 
@@ -51,6 +52,9 @@ print(T) ->
 print_last() ->
   ?MODULE ! print_last.
 
+print_lag() ->
+  ?MODULE ! print_lag.
+
 loop(State) ->
   receive
     step ->
@@ -66,17 +70,27 @@ loop(State) ->
       print(State#state.size_x, State#state.size_y, T),
       loop(State);
     print_last ->
-      Last = query_time(State),
-      io:format("Time is ~p.~n", [Last]),
-      print(State#state.size_x, State#state.size_y, Last),
+      MinTime = minimum_time(State),
+      io:format("Time is ~p.~n", [MinTime]),
+      print(State#state.size_x, State#state.size_y, MinTime),
+      loop(State);
+    print_lag ->
+      print_lag(State),
       loop(State)
   end.
 
 
-query_time(State) ->
-  Times = lists:map( fun egol_cell:time_sync/1,
-                     all_cells(State)),
+minimum_time(State) ->
+  Times = all_times(State),
   lists:min(Times).
+
+all_times(State) ->
+  Tagged = all_times_tagged(State),
+  [ T || {_, T} <- Tagged ].
+
+all_times_tagged(State) ->
+  [ {XY, egol_cell:time_sync(XY)}
+    || XY <- all_cells(State) ].
 
 
 fill_cells(Cells) ->
@@ -108,6 +122,36 @@ print_row(K, N, Board) ->
    || Value <- Values],
   io:format("~n").
 
+print_lag(#state{size_x=N, size_y=M}=State) ->
+  TaggedTimes = all_times_tagged(State),
+  Times = all_times(State),
+  MaxTime = lists:max(Times),
+  Lag = [ {XY, MaxTime - T}
+          || {XY, T} <- TaggedTimes ],
+  FormattedLag = [ {XY, format_lag(L)}
+                   || {XY, L} <- Lag ],
+  print_values(N, M, FormattedLag).
+
+print_values(N, M, Board) ->
+  lists:foreach( fun (K) ->
+                     print_formatted_row(K, N, Board)
+                 end,
+                 lists:seq(M-1, 0, -1) ).
+                 
+print_formatted_row(K, N, Board) ->
+  Values = [ cell_content({N1,K}, Board)
+             || N1 <- lists:seq(0, N-1) ],
+  [ io:format("~s", [Value])
+    || Value <- Values],
+  io:format("~n").
+  
+
+format_lag(N) when N < 10 ->
+  io_lib:format("~p", [N]);
+format_lag(_) ->
+  "+".
+  
+
 format_cell_value(0) -> io:format(".");
 format_cell_value(1) -> io:format("*").
                  
@@ -136,7 +180,7 @@ cell_content(XY, Board) ->
 test(1) ->
   start(8, 8, []);
 test(2) ->
-  Full = [{0,0}, {1,0}, {2,0}, {2,1},{1,2}];
+  [{0,0}, {1,0}, {2,0}, {2,1},{1,2}];
 test(3) ->
   start(8,8,test(2)).
   
