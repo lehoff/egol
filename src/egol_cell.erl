@@ -1,7 +1,18 @@
 -module(egol_cell).
 
--compile(export_all).
 -compile([{parse_transform, lager_transform}]).
+
+-export([start/2,
+         init/1]).
+-export([set/2,
+         get/2,
+         get_sync/2,
+         history_sync/1,
+         time_sync/1,
+         run/1,
+         pause/1,
+         step/1]).
+         
 
 -record(state,
         { xy,
@@ -181,8 +192,6 @@ reg(XY) ->
 cell_name(XY) -> {n,l,XY}.
 
 
-reply(Pid, Reply) ->
-  Pid ! Reply.
 
 neighbours({X,Y}, {DimX, DimY}) ->
   [ {Xa rem DimX, Ya rem DimY} ||
