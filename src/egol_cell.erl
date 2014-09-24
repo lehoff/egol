@@ -1,6 +1,7 @@
 -module(egol_cell).
 
 -compile(export_all).
+-compile([{parse_transform, lager_transform}]).
 
 -record(state,
         { xy,
@@ -42,8 +43,10 @@ step(To) -> cmd(To, step).
 
 cmd(To, Cmd) when is_pid(To) ->
   To ! Cmd;
+cmd(To, Cmd) when is_tuple(To) ->
+  cmd( gproc:where(cell_name(To)), Cmd );
 cmd(To, Cmd) ->
-  cmd( gproc:where(cell_name(To)), Cmd ).
+  lager:error("Incorrect To:~p with Cmd:~p", [To, Cmd]).
 
 cmd_sync(To, Cmd) ->
   cmd(To, {self(), Cmd}),
@@ -66,7 +69,7 @@ idle(State) ->
       idle(State#state{content=NewContent});
     {From, {get, Time}} ->
       case content_at(Time, State) of
-        undefined ->
+        future ->
           idle(State#state{future=[{From, Time} | State#state.future]});
         C ->
           From ! C,              
@@ -105,7 +108,8 @@ run1(#state{time=T, neighbours=Neighbours}=State) ->
 
 run1_collecting(#state{xy=XY,content=Content, time=T, history=History, future=Future}=State, NeighbourCount, []) ->
   NextContent = next_content(Content, NeighbourCount),
-  NewFuture = process_future(XY, T+1, NextContent, Future), 
+  NewFuture = process_future(XY, T+1, NextContent, Future),
+  lager:info("Cell ~p changing to ~p for time ~p", [XY, NextContent, T+1]),
   State#state{content=NextContent,
               time=T+1,
               history=[{T, Content}|History],
@@ -114,7 +118,7 @@ run1_collecting(#state{}=State, NeighbourCount, WaitingOn) ->
   receive
     {From, {get, Time}} ->
       case content_at(Time, State) of
-        undefined ->
+        future ->
           run1_collecting(State#state{future=[{From, Time}|State#state.future]},
                           NeighbourCount, WaitingOn);
         C ->
@@ -161,7 +165,7 @@ next_content(_, _) -> 0.
 content_at(Time, #state{xy=XY, time=Time, content=Content}) ->
   {{XY,Time}, Content};
 content_at(Time, #state{time=T}) when Time > T ->
-  undefined;
+  future;
 content_at(Time, #state{xy=XY, history=History}) when is_integer(Time), Time >= 0->
   {_, Content} = lists:keyfind(Time, 1, History),
   {{XY, Time}, Content}.

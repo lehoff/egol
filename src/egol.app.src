@@ -3,5 +3,5 @@
               {vsn,"0.0.1"},
               {modules,[egol]},
               {registered,[]},
-              {applications,[kernel,stdlib,gproc]},
+              {applications,[kernel, stdlib, gproc, lager]},
               {start_phases,[]}]}. 
