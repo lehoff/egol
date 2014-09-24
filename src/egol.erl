@@ -1,6 +1,14 @@
 -module(egol).
 
--compile(export_all).
+-export([start/3,
+         init/3,
+         step/0,
+         run/0,
+         run/1,
+         pause/0,
+         print/1,
+         print_last/0]).
+
 
 -record(state,
         {size_x,
@@ -73,21 +81,10 @@ fill_cells(Cells) ->
   [ egol_cell:set(Cell, 1)
     || Cell <- Cells].
 
-step_all(N, M) ->
-  Cells = all_cells(N, M),
-  step_cells(Cells).
 
 step_cells(Cells) -> lists:foreach(fun egol_cell:step/1, Cells).
 
-run_all(N,M) ->
-  Cells = all_cells(N, M),
-  run_cells(Cells).
-
 run_cells(Cells) -> lists:foreach(fun egol_cell:run/1, Cells).
-
-stop_all(N,M) ->
-  Cells = all_cells(N, M),
-  pause_cells(Cells).
 
 pause_cells(Cells) -> lists:foreach(fun egol_cell:pause/1, Cells).
 
