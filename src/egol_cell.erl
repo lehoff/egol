@@ -32,10 +32,12 @@ get_sync(To, Time) ->
 history_sync(To) ->
   cmd_sync(To, history).
 
+time_sync(To) ->
+  cmd_sync(To, time).
 
 run(To) -> cmd(To, run).
 
-stop(To) -> cmd(To, stop).
+pause(To) -> cmd(To, pause).
 
 step(To) -> cmd(To, step).
 
@@ -79,12 +81,15 @@ idle(State) ->
       #state{history=History} = State,
       From ! History,
       idle(State);
+    {From, time} ->
+      From ! State#state.time,
+      idle(State);
     run ->
       running(State);
     step ->
       NewState=run1(State),
       idle(NewState);
-    stop ->
+    pause ->
       idle(State)    
   end.
 
@@ -92,7 +97,7 @@ running(#state{time=T, neighbours=Neighbours}=State) ->
   query_neighbours(T, Neighbours),
   NewState = run1_collecting(State, 0, neighbours_at(T, Neighbours)),
   receive
-    stop ->
+    pause ->
       idle(NewState);
     step ->
       NextState = run1_collecting(NewState, 0, Neighbours),
