@@ -38,7 +38,8 @@ get(To, Time) ->
   cmd(To, {self(), {get, Time}}).
 
 get_sync(To, Time) ->
-  cmd_sync(To, {get, Time}).
+  {cell_content, C} = cmd_sync(To, {get, Time}),
+  C.
 
 history_sync(To) ->
   cmd_sync(To, history).
@@ -85,7 +86,7 @@ idle(State) ->
         future ->
           idle(State#state{future=[{From, Time} | State#state.future]});
         C ->
-          From ! C,              
+          From ! {cell_content, C},              
           idle(State)
       end;
     {From, history} ->
@@ -98,7 +99,7 @@ idle(State) ->
     run ->
       running(State);
     step ->
-      NewState=run1(State),
+      NewState=run_step(State),
       idle(NewState);
     pause ->
       idle(State)    
@@ -106,23 +107,23 @@ idle(State) ->
 
 running(#state{time=T, neighbours=Neighbours}=State) ->
   query_neighbours(T, Neighbours),
-  NewState = run1_collecting(State, 0, neighbours_at(T, Neighbours)),
+  NewState = collecting(State, 0, neighbours_at(T, Neighbours)),
   receive
     pause ->
       idle(NewState);
     step ->
-      NextState = run1_collecting(NewState, 0, Neighbours),
+      NextState = collecting(NewState, 0, Neighbours),
       idle(NextState)
   after
     0 ->
       running(NewState)
   end.
 
-run1(#state{time=T, neighbours=Neighbours}=State) ->
+run_step(#state{time=T, neighbours=Neighbours}=State) ->
   query_neighbours(T, Neighbours),
-  run1_collecting(State, 0, neighbours_at(T, Neighbours)).
+  collecting(State, 0, neighbours_at(T, Neighbours)).
 
-run1_collecting(#state{xy=XY,content=Content, time=T, history=History, future=Future}=State, NeighbourCount, []) ->
+collecting(#state{xy=XY, content=Content, time=T, history=History, future=Future}=State, NeighbourCount, []) ->
   NextContent = next_content(Content, NeighbourCount),
   NewFuture = process_future(XY, T+1, NextContent, Future),
   lager:info("Cell ~p changing to ~p for time ~p", [XY, NextContent, T+1]),
@@ -130,29 +131,28 @@ run1_collecting(#state{xy=XY,content=Content, time=T, history=History, future=Fu
               time=T+1,
               history=[{T, Content}|History],
               future=NewFuture};
-run1_collecting(#state{}=State, NeighbourCount, WaitingOn) ->
+collecting(#state{}=State, NeighbourCount, WaitingOn) ->
   receive
     {From, {get, Time}} ->
       case content_at(Time, State) of
         future ->
-          run1_collecting(State#state{future=[{From, Time}|State#state.future]},
-                          NeighbourCount, WaitingOn);
+          collecting(State#state{future=[{From, Time}|State#state.future]},
+                     NeighbourCount, WaitingOn);
         C ->
-          From ! C,
-          run1_collecting(State, NeighbourCount, WaitingOn)
+          From ! {cell_content, C},
+          collecting(State, NeighbourCount, WaitingOn)
       end;
-    {{{_,_},_}=XYatT, NeighbourContent} ->
+    {cell_content, {{{_,_},_}=XYatT, NeighbourContent}} ->
       case lists:member(XYatT, WaitingOn) of
         true ->
-          %%io:format("~p + ~p: ~p~n", [NeighbourCount, NeighbourContent, XYatT]),
-          run1_collecting(State, NeighbourCount + NeighbourContent, lists:delete(XYatT, WaitingOn));
+          collecting(State, NeighbourCount + NeighbourContent, lists:delete(XYatT, WaitingOn));
         false %% ignore messages we are not waiting for
               ->
-          run1_collecting(State, NeighbourCount, WaitingOn)
+          collecting(State, NeighbourCount, WaitingOn)
       end;
     {set, NewContent} %% fun stuff can happen if you change the state while running...
                       ->
-      run1_collecting(State#state{content=NewContent}, NeighbourCount, WaitingOn)
+      collecting(State#state{content=NewContent}, NeighbourCount, WaitingOn)
   end.
 
 process_future(XY, Time, Content, Future) ->
@@ -161,7 +161,7 @@ process_future(XY, Time, Content, Future) ->
                                         end,
                                         Future),
   lists:foreach( fun({Pid,_}) ->
-                     Pid ! {{XY,Time}, Content}
+                     Pid ! {cell_content, {{XY,Time}, Content}}
                  end,
                  Ready),
   NewFuture.
