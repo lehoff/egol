@@ -2,7 +2,7 @@
 
 -compile([{parse_transform, lager_transform}]).
 
--export([start/2,
+-export([start/3,
          init/1]).
 -export([set/2,
          get/2,
@@ -10,6 +10,7 @@
          history_sync/1,
          time_sync/1,
          run/1,
+         run_until/2,
          pause/1,
          step/1]).
          
@@ -20,17 +21,19 @@
           dim,
           content=0 :: 0..1,
           time=0,
-          collector :: pid(),
+          collector :: pid() | 'undefined',
+          pacer :: pid() | 'undefined',
           mode=step :: mode(),
           future= [] :: [{pid(), pos_integer()}],
           history=[],
           neighbours}).
 
-start({X,Y}=XY, {DimX, DimY}=Dim) when X < DimX;
-                                       0 =< X;
-                                       Y < DimY;
-                                       0 =< Y ->
-  spawn(?MODULE, init, [#state{xy=XY, dim=Dim, content=0,
+start({X,Y}=XY, {DimX, DimY}=Dim, InitialContent) 
+  when X < DimX;
+       0 =< X;
+       Y < DimY;
+       0 =< Y ->
+  spawn(?MODULE, init, [#state{xy=XY, dim=Dim, content=InitialContent,
                                neighbours=neighbours(XY, Dim)}]).
 
 
@@ -51,6 +54,9 @@ time_sync(To) ->
   cmd_sync(To, time).
 
 run(To) -> cmd(To, run).
+
+run_until(To, EndTime) ->
+  cmd(To, {run_until, EndTime}).
 
 pause(To) -> cmd(To, pause).
 
@@ -116,6 +122,19 @@ loop(#state{xy=XY, time=T, content=Content, collector=Collector,
           NewState = start_collector(State),
           loop(NewState#state{mode=step})
       end;
+    {run_until, EndTime} ->
+      case is_collector_running(State) of
+        true ->
+          loop(State#state{mode={run_until, EndTime}});
+        false ->
+          case T < EndTime of
+            true ->
+              NewState = start_collector(State),
+              loop(NewState#state{mode={run_until, EndTime}});
+            false ->
+              loop(State)
+          end
+      end;
     pause ->
       loop(State#state{mode=step});
     {Collector, {next_content, NextContent}} ->
@@ -129,12 +148,22 @@ loop(#state{xy=XY, time=T, content=Content, collector=Collector,
         step ->
           loop(NextState);
         run ->
-          loop(start_collector(NextState))
+          loop(start_collector(NextState));
+        {run_until, EndTime} ->
+          case NextState#state.time < EndTime of
+            true ->
+              loop(start_collector(NextState));
+            false ->
+              loop(NextState#state{mode=step})
+          end
       end
   end.
 
 is_collector_running(#state{collector=Collector}) ->
     is_pid(Collector) andalso is_process_alive(Collector).
+
+is_pacer_running(#state{pacer=Pacer}) ->
+    is_pid(Pacer) andalso is_process_alive(Pacer).
 
 start_collector(#state{time=T, neighbours=Neighbours, content=Content}=State) ->
   Cell = self(),

@@ -1,10 +1,11 @@
 -module(egol).
-
+ 
 -export([start/3,
          init/3,
          step/0,
          run/0,
          run/1,
+         run_until/1,
          pause/0,
          print/1,
          print_last/0,
@@ -22,15 +23,16 @@ start(N, M, InitialCells) ->
 
 init(N, M, InitialCells) ->
   AllCells = all_cells(N, M),
-  [egol_cell:start(XY, {N,M})
+  [start_cell(XY, {N,M}, lists:member(XY, InitialCells))
    || XY <- AllCells ],
-  timer:sleep(10),
-  fill_cells(InitialCells),
   register(?MODULE, self()),
   loop(#state{size_x=N,
               size_y=M}).
 
-
+start_cell(XY, Dim, true) ->
+  egol_cell:start(XY, Dim, 1);
+start_cell(XY, Dim, false) ->
+  egol_cell:start(XY, Dim, 0).
 
 step() ->
   ?MODULE ! step.
@@ -42,6 +44,9 @@ run(Time) ->
   run(),
   timer:sleep(Time),
   pause().
+
+run_until(EndTime) ->
+  ?MODULE ! {run_until, EndTime}.
 
 pause() ->
   ?MODULE ! pause.
@@ -62,6 +67,9 @@ loop(State) ->
       loop(State);
     run ->
       run_cells(all_cells(State)),
+      loop(State);
+    {run_until, EndTime} ->
+      run_cells_until(all_cells(State), EndTime),
       loop(State);
     pause ->
       pause_cells(all_cells(State)),
@@ -101,6 +109,12 @@ fill_cells(Cells) ->
 step_cells(Cells) -> lists:foreach(fun egol_cell:step/1, Cells).
 
 run_cells(Cells) -> lists:foreach(fun egol_cell:run/1, Cells).
+
+run_cells_until(Cells, EndTime) ->
+  lists:foreach(fun (Cell) ->
+                    egol_cell:run_until(Cell, EndTime)
+                end,
+                Cells).
 
 pause_cells(Cells) -> lists:foreach(fun egol_cell:pause/1, Cells).
 
