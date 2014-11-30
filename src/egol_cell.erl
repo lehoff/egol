@@ -194,55 +194,6 @@ collector_loop(WaitingOn, NeighbourCount, Cell, Content) ->
       collector_loop(WaitingOn, NeighbourCount, Cell, NewContent)
   end.
 
-%% running(#state{time=T, neighbours=Neighbours}=State) ->
-%%   query_neighbours(T, Neighbours),
-%%   NewState = collecting(State, 0, neighbours_at(T, Neighbours)),
-%%   receive
-%%     pause ->
-%%       loop(NewState);
-%%     step ->
-%%       NextState = collecting(NewState, 0, Neighbours),
-%%       loop(NextState)
-%%   after
-%%     0 ->
-%%       running(NewState)
-%%   end.
-
-%% run_step(#state{time=T, neighbours=Neighbours}=State) ->
-%%   query_neighbours(T, Neighbours),
-%%   collecting(State, 0, neighbours_at(T, Neighbours)).
-
-%% collecting(#state{xy=XY, content=Content, time=T, history=History, future=Future}=State, NeighbourCount, []) ->
-%%   NextContent = next_content(Content, NeighbourCount),
-%%   NewFuture = process_future(XY, T+1, NextContent, Future),
-%%   lager:info("Cell ~p changing to ~p for time ~p", [XY, NextContent, T+1]),
-%%   State#state{content=NextContent,
-%%               time=T+1,
-%%               history=[{T, Content}|History],
-%%               future=NewFuture};
-%% collecting(#state{}=State, NeighbourCount, WaitingOn) ->
-%%   receive
-%%     {From, {get, Time}} ->
-%%       case content_at(Time, State) of
-%%         future ->
-%%           collecting(State#state{future=[{From, Time}|State#state.future]},
-%%                      NeighbourCount, WaitingOn);
-%%         C ->
-%%           From ! {cell_content, C},
-%%           collecting(State, NeighbourCount, WaitingOn)
-%%       end;
-%%     {cell_content, {{{_,_},_}=XYatT, NeighbourContent}} ->
-%%       case lists:member(XYatT, WaitingOn) of
-%%         true ->
-%%           collecting(State, NeighbourCount + NeighbourContent, lists:delete(XYatT, WaitingOn));
-%%         false %% ignore messages we are not waiting for
-%%               ->
-%%           collecting(State, NeighbourCount, WaitingOn)
-%%       end;
-%%     {set, NewContent} %% fun stuff can happen if you change the state while running...
-%%                       ->
-%%       collecting(State#state{content=NewContent}, NeighbourCount, WaitingOn)
-%%   end.
 
 process_future(XY, Time, Content, Future) ->
   {Ready, NewFuture} = lists:partition( fun({_Pid,T}) ->
