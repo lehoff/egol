@@ -6,6 +6,8 @@
          run/0,
          run/1,
          run_until/1,
+         max_time/0,
+         mode/0,
          pause/0,
          kill/1,
          print/1,
@@ -14,12 +16,10 @@
 
 -export([test/1]).
 
--type cell_coordinates() :: {integer(), integer()}.
-
 -record(state,
         {size_x,
          size_y,
-         cells :: [{pid(), reference(), cell_coordinates()}]
+         mode
         }).
 
 start(N, M, InitialCells) ->
@@ -51,6 +51,22 @@ run(Time) ->
 
 run_until(EndTime) ->
   ?MODULE ! {run_until, EndTime}.
+
+max_time() ->
+  ?MODULE ! {max_time, self()},
+  receive 
+    MaxTime ->
+      MaxTime
+  end.
+
+mode() ->
+  ?MODULE ! {mode, self()},
+  receive 
+    Mode ->
+      Mode
+  end.
+  
+
 
 pause() ->
   ?MODULE ! pause.
@@ -84,6 +100,12 @@ loop(State) ->
     {print,T} ->
       print(State#state.size_x, State#state.size_y, T),
       loop(State);
+    {mode, From} ->
+      From ! State#state.mode,
+      loop(State);
+    {max_time, From} ->
+      From ! maximum_time(State),
+      loop(State);
     print_last ->
       MinTime = minimum_time(State),
       io:format("Time is ~p.~n", [MinTime]),
@@ -94,6 +116,15 @@ loop(State) ->
       loop(State)
   end.
 
+
+maximum_time(State) ->
+  AllCellPids = [ egol_cell:where(Cell) 
+                  || Cell <- all_cells(State) ],
+  LiveCells = lists:filter( fun erlang:is_pid/1, AllCellPids),
+  AllTimes = [ egol_cell:time_sync(Cell) 
+               || Cell <- LiveCells ],
+  lists:max(AllTimes).
+                                
 
 minimum_time(State) ->
   Times = all_times(State),
