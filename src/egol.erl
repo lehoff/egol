@@ -91,7 +91,7 @@ loop(State) ->
   receive
     step ->
       step_cells(all_cells(State)),
-      loop(State#state{mode=run});
+      loop(State#state{mode=step});
     run ->
       run_cells(all_cells(State)),
       loop(State#state{mode=run});
@@ -239,7 +239,13 @@ test(2) ->
   [{0,0}, {1,0}, {2,0}, {2,1},{1,2}];
 test(3) ->
   egol_cell_sup:start_link(),
-  start(8,8,test(2)).
+  start(8,8,test(2));
+test(4) ->
+  test(3),
+  timer:sleep(50),
+  run(200),
+  kill({0,0}),
+  run(200).
   
 
   
