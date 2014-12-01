@@ -7,16 +7,20 @@
          run/1,
          run_until/1,
          pause/0,
+         kill/1,
          print/1,
          print_last/0,
          print_lag/0]).
 
 -export([test/1]).
 
+-type cell_coordinates() :: {integer(), integer()}.
 
 -record(state,
         {size_x,
-         size_y}).
+         size_y,
+         cells :: [{pid(), reference(), cell_coordinates()}]
+        }).
 
 start(N, M, InitialCells) ->
   spawn(?MODULE, init, [N, M, InitialCells]).
@@ -50,6 +54,9 @@ run_until(EndTime) ->
 
 pause() ->
   ?MODULE ! pause.
+
+kill(XY) ->
+  egol_cell:kill(XY).
 
 print(T) ->
   ?MODULE ! {print, T}.

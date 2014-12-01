@@ -3,7 +3,8 @@
 -compile([{parse_transform, lager_transform}]).
 
 -export([start/3,
-         init/1]).
+         init/1,
+         kill/1]).
 -export([set/2,
          get/2,
          get_sync/2,
@@ -36,6 +37,14 @@ start({X,Y}=XY, {DimX, DimY}=Dim, InitialContent)
   spawn(?MODULE, init, [#state{xy=XY, dim=Dim, content=InitialContent,
                                neighbours=neighbours(XY, Dim)}]).
 
+
+kill(XY) ->
+  case gproc:where({n, l, XY}) of
+    undefined ->
+      ok;
+    Pid when is_pid(Pid) ->
+      exit(Pid, kill)
+  end.
 
 set(To, State) ->
   cmd(To, {set, State}).
