@@ -3,8 +3,10 @@
 -compile([{parse_transform, lager_transform}]).
 
 -export([start/3,
+         start_link/3,
          init/1,
-         kill/1]).
+         kill/1,
+         where/1]).
 -export([set/2,
          get/2,
          get_sync/2,
@@ -37,9 +39,21 @@ start({X,Y}=XY, {DimX, DimY}=Dim, InitialContent)
   spawn(?MODULE, init, [#state{xy=XY, dim=Dim, content=InitialContent,
                                neighbours=neighbours(XY, Dim)}]).
 
+start_link({X,Y}=XY, {DimX, DimY}=Dim, InitialContent) 
+  when X < DimX;
+       0 =< X;
+       Y < DimY;
+       0 =< Y ->
+  Pid = spawn_link(?MODULE, init, [#state{xy=XY, dim=Dim, content=InitialContent,
+                                          neighbours=neighbours(XY, Dim)}]),
+  {ok, Pid}.
+
+
+where(XY) ->
+  gproc:where(cell_name(XY)).
 
 kill(XY) ->
-  case gproc:where({n, l, XY}) of
+  case where(XY) of
     undefined ->
       ok;
     Pid when is_pid(Pid) ->
@@ -76,7 +90,7 @@ step(To) -> cmd(To, step).
 cmd(To, Cmd) when is_pid(To) ->
   To ! Cmd;
 cmd(To, Cmd) when is_tuple(To) ->
-  cmd( gproc:where(cell_name(To)), Cmd );
+  cmd( where(To), Cmd );
 cmd(To, Cmd) ->
   lager:error("Incorrect To:~p with Cmd:~p", [To, Cmd]).
 

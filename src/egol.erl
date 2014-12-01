@@ -27,16 +27,20 @@ start(N, M, InitialCells) ->
 
 init(N, M, InitialCells) ->
   AllCells = all_cells(N, M),
-  [start_cell(XY, {N,M}, lists:member(XY, InitialCells))
-   || XY <- AllCells ],
+  Cells =  [{start_cell(XY, {N,M}, lists:member(XY, InitialCells)), XY}
+            || XY <- AllCells ],
+  egol_cell_mgr:start(Cells),
   register(?MODULE, self()),
   loop(#state{size_x=N,
-              size_y=M}).
+              size_y=M,
+              mode=step}).
 
 start_cell(XY, Dim, true) ->
-  egol_cell:start(XY, Dim, 1);
+  {ok, Pid} = egol_cell_sup:start_cell(XY, Dim, 1),
+  Pid;
 start_cell(XY, Dim, false) ->
-  egol_cell:start(XY, Dim, 0).
+  {ok, Pid} = egol_cell_sup:start_cell(XY, Dim, 0),
+  Pid.
 
 step() ->
   ?MODULE ! step.
@@ -87,16 +91,16 @@ loop(State) ->
   receive
     step ->
       step_cells(all_cells(State)),
-      loop(State);
+      loop(State#state{mode=run});
     run ->
       run_cells(all_cells(State)),
-      loop(State);
+      loop(State#state{mode=run});
     {run_until, EndTime} ->
       run_cells_until(all_cells(State), EndTime),
-      loop(State);
+      loop(State#state{mode={run_until,EndTime}});
     pause ->
       pause_cells(all_cells(State)),
-      loop(State);
+      loop(State#state{mode=step});
     {print,T} ->
       print(State#state.size_x, State#state.size_y, T),
       loop(State);
@@ -234,6 +238,7 @@ test(1) ->
 test(2) ->
   [{0,0}, {1,0}, {2,0}, {2,1},{1,2}];
 test(3) ->
+  egol_cell_sup:start_link(),
   start(8,8,test(2)).
   
 
