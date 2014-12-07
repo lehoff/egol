@@ -185,8 +185,6 @@ loop(#state{xy=XY, time=T, content=Content, collector=Collector,
 is_collector_running(#state{collector=Collector}) ->
     is_pid(Collector) andalso is_process_alive(Collector).
 
-is_pacer_running(#state{pacer=Pacer}) ->
-    is_pid(Pacer) andalso is_process_alive(Pacer).
 
 start_collector(#state{time=T, neighbours=Neighbours, content=Content}=State) ->
   Cell = self(),
