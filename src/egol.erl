@@ -245,7 +245,26 @@ test(4) ->
   timer:sleep(50),
   run(200),
   kill({0,0}),
-  run(200).
+  run(200);
+test(5) ->
+  test(3),
+  timer:sleep(50),
+  run(),
+  timer:sleep(200),
+  kill({1,1}),
+  timer:sleep(200),
+  pause(),
+  [ kill(C) 
+    || C <- [{0,2}, {1,2}, {2,2},
+             {0,1}, {1,1}, {2,1},
+             {0,0}, {1,0}, {2,0}]];
+test(6) ->
+  InitialCells = [{2,3}, {2,5},
+                  {3,2}, {3,3}, {3,4},
+                  {4,1}, {4,5}],
+  egol_cell_sup:start_link(),
+  start(7,6, InitialCells).
+       
   
 
   
