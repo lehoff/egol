@@ -125,7 +125,7 @@ maximum_time(State) ->
   AllCellPids = [ egol_cell:where(Cell) 
                   || Cell <- all_cells(State) ],
   LiveCells = lists:filter( fun erlang:is_pid/1, AllCellPids),
-  AllTimes = [ egol_cell:time_sync(Cell) 
+  AllTimes = [ egol_cell:time(Cell) 
                || Cell <- LiveCells ],
   lists:max(AllTimes).
                                 
@@ -139,7 +139,7 @@ all_times(State) ->
   [ T || {_, T} <- Tagged ].
 
 all_times_tagged(State) ->
-  [ {XY, egol_cell:time_sync(XY)}
+  [ {XY, egol_cell:time(XY)}
     || XY <- all_cells(State) ].
 
 
@@ -224,11 +224,8 @@ cells_at(Time, Cells) ->
   [ {C, Time} || C <- Cells ].
 
 query_cells(CellsAtT) ->
-  [ begin
-      {_, C} = egol_cell:get_sync(XY, T),
-      {XY, C}
-    end
-    || {XY, T} <- CellsAtT ].
+  [ {XY, egol_cell:get(XY, T)}
+   || {XY, T} <- CellsAtT].
 
 cell_content(XY, Board) ->
   proplists:get_value(XY, Board).

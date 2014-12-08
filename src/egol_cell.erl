@@ -2,20 +2,36 @@
 
 -compile([{parse_transform, lager_transform}]).
 
+-behaviour(gen_server).
+
 -export([start/3,
          start_link/3,
-         init/1,
          kill/1,
          where/1]).
+
+%% gen_server callbacks
+-export([init/1, 
+         handle_call/3, 
+         handle_cast/2, 
+         handle_info/2,
+         terminate/2, 
+         code_change/3]).
+
+
 -export([set/2,
          get/2,
-         get_sync/2,
-         history_sync/1,
-         time_sync/1,
+         query_content/2,
+         history/1,
+         time/1,
          run/1,
          run_until/2,
          pause/1,
          step/1]).
+
+-type cell_content() :: 0 | 1.
+-type cell_name() :: {integer(), integer()}.
+-type time() :: integer().
+
          
 -type mode() :: 'run' | 'step'.
 
@@ -31,22 +47,26 @@
           history=[],
           neighbours}).
 
+%% @todo use via naming with gproc
 start({X,Y}=XY, {DimX, DimY}=Dim, InitialContent) 
   when X < DimX;
        0 =< X;
        Y < DimY;
        0 =< Y ->
-  spawn(?MODULE, init, [#state{xy=XY, dim=Dim, content=InitialContent,
-                               neighbours=neighbours(XY, Dim)}]).
+  gen_server:start(?MODULE,  
+                   #state{xy=XY, dim=Dim, content=InitialContent,
+                          neighbours=neighbours(XY, Dim)}, 
+                   []).
 
 start_link({X,Y}=XY, {DimX, DimY}=Dim, InitialContent) 
   when X < DimX;
        0 =< X;
        Y < DimY;
        0 =< Y ->
-  Pid = spawn_link(?MODULE, init, [#state{xy=XY, dim=Dim, content=InitialContent,
-                                          neighbours=neighbours(XY, Dim)}]),
-  {ok, Pid}.
+  gen_server:start_link(?MODULE, 
+                        #state{xy=XY, dim=Dim, content=InitialContent,
+                                neighbours=neighbours(XY, Dim)},
+                        []).
 
 
 where(XY) ->
@@ -60,127 +80,157 @@ kill(XY) ->
       exit(Pid, kill)
   end.
 
-set(To, State) ->
-  cmd(To, {set, State}).
+set(Cell, Content) ->
+  cast(Cell, {set, Content}).
 
-get(To, Time) ->
-  cmd(To, {self(), {get, Time}}).
+%% ask the cell to send a message back with its contents at the given Time. 
+query_content(Cell, Time) ->
+  cast(Cell, {query_content, Time, self()}).
 
-get_sync(To, Time) ->
-  {cell_content, C} = cmd_sync(To, {get, Time}),
-  C.
-
-history_sync(To) ->
-  cmd_sync(To, history).
-
-time_sync(To) ->
-  cmd_sync(To, time).
-
-run(To) -> cmd(To, run).
-
-run_until(To, EndTime) ->
-  cmd(To, {run_until, EndTime}).
-
-pause(To) -> cmd(To, pause).
-
-step(To) -> cmd(To, step).
+-spec get(pid()|cell_name(), time()) -> cell_content().
+get(Cell, Time) ->
+  call(Cell, {get, Time}).
 
 
+history(Cell) ->
+  call(Cell, history).
 
-cmd(To, Cmd) when is_pid(To) ->
-  To ! Cmd;
-cmd(To, Cmd) when is_tuple(To) ->
-  cmd( where(To), Cmd );
-cmd(To, Cmd) ->
-  lager:error("Incorrect To:~p with Cmd:~p", [To, Cmd]).
+time(Cell) ->
+  call(Cell, time).
 
-cmd_sync(To, Cmd) ->
-  cmd(To, {self(), Cmd}),
-  receive
-    Res ->
-      Res
-  end.
+
+run(Cell) ->
+  cast(Cell, run).
+
+
+run_until(Cell, EndTime) ->
+  cast(Cell, {run_until, EndTime}).
+
+pause(Cell) -> 
+  cast(Cell, pause).
+
+step(Cell) ->
+  cast(Cell, step).
+
+
+
+call(Cell, Cmd) ->
+  gen_server:call(cell_pid(Cell), Cmd).
+
+cast(Cell, Cmd) ->
+  gen_server:cast(cell_pid(Cell), Cmd).
+
+cell_pid({_,_}=XY) ->
+  where(XY);
+cell_pid(Pid) when is_pid(Pid) ->
+  Pid.
+
+
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% states
 init(#state{xy=XY}=State) ->
   reg(XY),
-  loop(State).
+  {ok, State}.
 
 
-loop(#state{xy=XY, time=T, content=Content, collector=Collector,
-            future=Future, history=History}=State) ->
-  receive 
-    {set, NewContent} ->
-      loop(State#state{content=NewContent});
-    {From, {get, Time}} ->
-      case content_at(Time, State) of
-        future ->
-          loop(State#state{future=[{From, Time} | State#state.future]});
-        C ->
-          From ! {cell_content, C},              
-          loop(State)
-      end;
-    {From, history} ->
-      #state{history=History} = State,
-      From ! History,
-      loop(State);
-    {From, time} ->
-      From ! State#state.time,
-      loop(State);
-    run ->
-      case is_collector_running(State) of
+handle_cast({set, NewContent}, State) ->
+  {noreply, State#state{content=NewContent}};
+handle_cast({From, {get, Time}}, State) ->
+  case content_at(Time, State) of
+    future ->
+      {noreply, State#state{future=[{From, Time} | State#state.future]}};
+    C ->
+      From ! {cell_content, C},              
+      {noreply, State}
+  end;
+handle_cast({query_content, Time, From}, State) ->
+  case content_at(Time, State) of
+    future ->
+      {noreply, State#state{future=[{From, Time} | State#state.future]}};
+    C ->
+      From ! {cell_content, C},              
+      {noreply, State}
+  end;
+handle_cast(run, State) ->
+  case is_collector_running(State) of
+    true ->
+      {noreply, State#state{mode=run}};
+    false ->
+      NextState = start_collector(State),
+      {noreply,  NextState#state{mode=run}}
+  end;
+handle_cast(step, State) ->
+  case is_collector_running(State) of
+    true ->
+      {noreply, State#state{mode=step}};
+    false ->
+      NewState = start_collector(State),
+      {noreply, NewState#state{mode=step}}
+  end;
+handle_cast({run_until, EndTime}, 
+            #state{time=T}=State) ->
+  case is_collector_running(State) of
+    true ->
+      {noreply, State#state{mode={run_until, EndTime}}};
+    false ->
+      case T < EndTime of
         true ->
-          loop(State#state{mode=run});
-        false ->
-          NextState = start_collector(State),
-          loop(NextState#state{mode=run})
-      end;
-    step ->
-      case is_collector_running(State) of
-        true ->
-          loop(State#state{mode=step});
-        false ->
           NewState = start_collector(State),
-          loop(NewState#state{mode=step})
-      end;
-    {run_until, EndTime} ->
-      case is_collector_running(State) of
-        true ->
-          loop(State#state{mode={run_until, EndTime}});
+          {noreply, NewState#state{mode={run_until, EndTime}}};
         false ->
-          case T < EndTime of
-            true ->
-              NewState = start_collector(State),
-              loop(NewState#state{mode={run_until, EndTime}});
-            false ->
-              loop(State)
-          end
-      end;
-    pause ->
-      loop(State#state{mode=step});
-    {Collector, {next_content, NextContent}} ->
-      NewFuture = process_future(XY, T+1, NextContent, Future),
-      lager:info("Cell ~p changing to ~p for time ~p", [XY, NextContent, T+1]),
-      NextState = State#state{content=NextContent,
-                              time=T+1,
-                              history=[{T, Content}|History],
-                              future=NewFuture}, 
-      case State#state.mode of
-        step ->
-          loop(NextState);
-        run ->
-          loop(start_collector(NextState));
-        {run_until, EndTime} ->
-          case NextState#state.time < EndTime of
-            true ->
-              loop(start_collector(NextState));
-            false ->
-              loop(NextState#state{mode=step})
-          end
+          {noreply, State}
+      end
+  end;
+handle_cast(pause, State) ->
+  {noreply, State#state{mode=step}}.
+
+handle_call(history, _From, State) ->
+  {reply, State#state.history, State};
+handle_call(time, _From, State) ->
+  {reply, State#state.time, State};
+handle_call({get, Time}, _From, State) ->
+  case content_at(Time, State) of
+    future ->
+      {reply, future, State};
+    {_, C} ->
+      {reply, C, State}
+  end.
+
+  
+
+handle_info({Collector, {next_content, NextContent}}, 
+            #state{collector=Collector,
+                   future=Future, xy=XY, time=T,
+                   content=Content, history=History}=State) ->
+  NewFuture = process_future(XY, T+1, NextContent, Future),
+  lager:info("Cell ~p changing to ~p for time ~p", [XY, NextContent, T+1]),
+  NextState = State#state{content=NextContent,
+                          time=T+1,
+                          history=[{T, Content}|History],
+                          future=NewFuture}, 
+  case State#state.mode of
+    step ->
+      {noreply, NextState};
+    run ->
+      {noreply, start_collector(NextState)};
+    {run_until, EndTime} ->
+      case NextState#state.time < EndTime of
+        true ->
+          {noreply, start_collector(NextState)};
+        false ->
+          {noreply, NextState#state{mode=step}}
       end
   end.
+
+terminate(_Reason, _State) ->
+  ok.
+
+code_change(_OldVsn, State, _Extra) ->
+  {ok, State}.
+
+
 
 is_collector_running(#state{collector=Collector}) ->
     is_pid(Collector) andalso is_process_alive(Collector).
@@ -229,9 +279,9 @@ process_future(XY, Time, Content, Future) ->
 
 query_neighbours(T, Neighbours) ->
   lists:foreach( fun(N) ->
-                   get(N, T)
-               end,
-               Neighbours).
+                     query_content(N, T)
+                 end,
+                 Neighbours).
 
 next_content(1, 2) -> 1;
 next_content(_, 3) -> 1;
