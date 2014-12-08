@@ -1,7 +1,10 @@
 -module(egol).
  
+-behaviour(gen_server).
+
+
+
 -export([start/3,
-         init/3,
          step/0,
          run/0,
          run/1,
@@ -14,7 +17,17 @@
          print_last/0,
          print_lag/0]).
 
+%% gen_server callbacks
+-export([init/1, 
+         handle_call/3, 
+         handle_cast/2, 
+         handle_info/2,
+         terminate/2, 
+         code_change/3]).
+
 -export([test/1]).
+
+
 
 -record(state,
         {size_x,
@@ -22,18 +35,19 @@
          mode
         }).
 
-start(N, M, InitialCells) ->
-  spawn(?MODULE, init, [N, M, InitialCells]).
+-define(SERVER, ?MODULE).
 
-init(N, M, InitialCells) ->
+start(N, M, InitialCells) ->
+  gen_server:start({local, ?SERVER}, ?MODULE, [N, M, InitialCells], []).
+
+init([N, M, InitialCells]) ->
   AllCells = all_cells(N, M),
   Cells =  [{start_cell(XY, {N,M}, lists:member(XY, InitialCells)), XY}
             || XY <- AllCells ],
   egol_cell_mgr:start(Cells),
-  register(?MODULE, self()),
-  loop(#state{size_x=N,
+  {ok, #state{size_x=N,
               size_y=M,
-              mode=step}).
+              mode=step}}.
 
 start_cell(XY, Dim, true) ->
   {ok, Pid} = egol_cell_sup:start_cell(XY, Dim, 1),
@@ -43,10 +57,10 @@ start_cell(XY, Dim, false) ->
   Pid.
 
 step() ->
-  ?MODULE ! step.
+  gen_server:cast(?SERVER, step).
 
 run() ->
-  ?MODULE ! run.
+  gen_server:cast(?SERVER, run).
 
 run(Time) ->
   run(),
@@ -54,71 +68,71 @@ run(Time) ->
   pause().
 
 run_until(EndTime) ->
-  ?MODULE ! {run_until, EndTime}.
+  gen_server:cast(?SERVER,{run_until, EndTime}).
 
 max_time() ->
-  ?MODULE ! {max_time, self()},
-  receive 
-    MaxTime ->
-      MaxTime
-  end.
+  gen_server:call(?SERVER,  max_time).
 
 mode() ->
-  ?MODULE ! {mode, self()},
-  receive 
-    Mode ->
-      Mode
-  end.
+  gen_server:call(?SERVER, mode).
   
-
-
 pause() ->
-  ?MODULE ! pause.
+  gen_server:cast(?SERVER, pause).
 
 kill(XY) ->
   egol_cell:kill(XY).
 
 print(T) ->
-  ?MODULE ! {print, T}.
+  gen_server:cast(?SERVER, {print, T}).
         
 print_last() ->
-  ?MODULE ! print_last.
+  gen_server:cast(?SERVER, print_last).
 
 print_lag() ->
-  ?MODULE ! print_lag.
+  gen_server:cast(?SERVER, print_lag).
 
-loop(State) ->
-  receive
-    step ->
-      step_cells(all_cells(State)),
-      loop(State#state{mode=step});
-    run ->
-      run_cells(all_cells(State)),
-      loop(State#state{mode=run});
-    {run_until, EndTime} ->
-      run_cells_until(all_cells(State), EndTime),
-      loop(State#state{mode={run_until,EndTime}});
-    pause ->
-      pause_cells(all_cells(State)),
-      loop(State#state{mode=step});
-    {print,T} ->
-      print(State#state.size_x, State#state.size_y, T),
-      loop(State);
-    {mode, From} ->
-      From ! State#state.mode,
-      loop(State);
-    {max_time, From} ->
-      From ! maximum_time(State),
-      loop(State);
-    print_last ->
-      MinTime = minimum_time(State),
-      io:format("Time is ~p.~n", [MinTime]),
-      print(State#state.size_x, State#state.size_y, MinTime),
-      loop(State);
-    print_lag ->
-      print_lag(State),
-      loop(State)
-  end.
+
+handle_cast(step, State) ->
+  step_cells(all_cells(State)),
+  {noreply, State#state{mode=step}};
+handle_cast(run, State) ->
+  run_cells(all_cells(State)),
+  {noreply, State#state{mode=run}};
+handle_cast({run_until, EndTime}, State) ->
+  run_cells_until(all_cells(State), EndTime),
+  {noreply, State#state{mode={run_until,EndTime}}};
+handle_cast(pause, State) ->
+  pause_cells(all_cells(State)),
+  {noreply, State#state{mode=step}};
+handle_cast({print,T}, State) ->
+  print(State#state.size_x, State#state.size_y, T),
+  {noreply, State};
+handle_cast(print_last, State) ->
+  MinTime = minimum_time(State),
+  io:format("Time is ~p.~n", [MinTime]),
+  print(State#state.size_x, State#state.size_y, MinTime),
+  {noreply, State};
+handle_cast(print_lag, State) ->
+  print_lag(State),
+  {noreply, State}.
+
+
+handle_call(mode, _From, State) ->
+  {reply, State#state.mode, State};
+handle_call(max_time, _From, State) ->
+  {reply, maximum_time(State), State}.
+
+
+handle_info(_Msg, State) ->
+  {noreply, State}.
+
+terminate(_Reason, _State) ->
+  ok.
+
+code_change(_OldVsn, State, _Extra) ->
+  {ok, State}.
+
+
 
 
 maximum_time(State) ->

@@ -129,7 +129,6 @@ cell_pid(Pid) when is_pid(Pid) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% states
 init(#state{xy=XY}=State) ->
   reg(XY),
   {ok, State}.
