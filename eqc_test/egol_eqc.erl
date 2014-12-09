@@ -7,7 +7,6 @@
 
 -record(state,
   { cell,
-    started=false,
     id,
     dim,
     content,
@@ -85,7 +84,7 @@ cell_pre(S, _) ->
   S#state.cell == undefined.
 
 cell_next(S, Pid, [CellId, Dim, Content]) ->
-  S#state{cell=Pid, id=CellId, dim=Dim, content=Content, started=true}.
+  S#state{cell=Pid, id=CellId, dim=Dim, content=Content}.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
