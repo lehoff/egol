@@ -19,12 +19,11 @@ api_spec() ->
   #api_spec{
      language = erlang,
      modules  = [
-                  %% #api_module{
-                  %%    name = gproc_ps,
-                  %%    functions = [ #api_fun{ name = subscribe, arity = 2},
-                  %%                  #api_fun{ name = publish,   arity = 3}
-                  %%                ]
-                  %%   }
+                  #api_module{
+                     name = egol_cell,
+                     functions = [ #api_fun{ name = query_content, arity = 2}
+                                 ]
+                    }
                 ]}.
   
 
@@ -73,8 +72,34 @@ cell_args(_S) ->
   ?LET({CellId, Dim}, cell_id_and_dim(),
        [CellId, Dim, content()]).
 
+cell_pre(S, _) ->
+  S#state.cell == undefined.
+
 cell_next(S, Pid, [CellId, Dim, Content]) ->
   S#state{cell=Pid, id=CellId, dim=Dim, content=Content}.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% step
+
+step(XY) ->
+  egol_cell:step(XY).
+
+step_args(S) ->
+  [S#state.id].
+
+step_pre(S, [XY]) ->
+  S#state.id /= undefined andalso
+  S#state.id == XY.
+
+step_callouts(S, [_XY]) ->
+  ?PAR(lists:duplicate(8, ?CALLOUT(egol_cell, query_content, [?WILDCARD, S#state.time], ok))).
+
+step_return(_S, _) ->
+  ok.
+
+step_next(S, _Res, _Args) ->
+  S.
 
 
 
