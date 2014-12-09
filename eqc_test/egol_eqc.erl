@@ -7,6 +7,7 @@
 
 -record(state,
   { cell,
+    started=false,
     id,
     dim,
     content,
@@ -20,10 +21,16 @@ api_spec() ->
      language = erlang,
      modules  = [
                   #api_module{
-                     name = egol_cell,
-                     functions = [ #api_fun{ name = query_content, arity = 2}
+                     name = egol_protocol,
+                     functions = [ #api_fun{ name = query_content, arity = 2},
+                                   #api_fun{ name = query_response, arity = 2}
                                  ]
-                    }
+                    }%,
+                 %% #api_module{
+                 %%    name = gproc,
+                 %%    functions = [ #api_fun{ name = where, arity=1},
+                 %%                  #api_fun{ name = reg, arity=1} ]
+                 %%   }
                 ]}.
   
 
@@ -37,7 +44,8 @@ prop_cell() ->
   ?SETUP(fun() -> 
              %% setup mocking here
              eqc_mocking:start_mocking(api_spec()),  
-             fun() -> application:stop(gproc) end %% Teardown function
+%%             fun() -> ok end
+             fun() -> application:stop(gproc)  end %% Teardown function
          end, 
   ?FORALL(Cmds, commands(?MODULE),
           begin
@@ -55,7 +63,8 @@ start() ->
   ok.
 
 stop(S) ->
-  egol_cell:kill(S#state.id),
+  catch exit(whereis(egol_cell_sup), normal),
+%%  egol_cell:kill(S#state.id),
   ok.
 
 
@@ -76,24 +85,26 @@ cell_pre(S, _) ->
   S#state.cell == undefined.
 
 cell_next(S, Pid, [CellId, Dim, Content]) ->
-  S#state{cell=Pid, id=CellId, dim=Dim, content=Content}.
+  S#state{cell=Pid, id=CellId, dim=Dim, content=Content, started=true}.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% step
 
-step(XY) ->
-  egol_cell:step(XY).
+step(Pid) ->
+  Res = egol_cell:step(Pid),
+  timer:sleep(50),
+  Res.
 
 step_args(S) ->
-  [S#state.id].
+  [S#state.cell].
 
-step_pre(S, [XY]) ->
-  S#state.id /= undefined andalso
-  S#state.id == XY.
+step_pre(S, [Pid]) ->
+  S#state.cell /= undefined andalso
+  S#state.cell == Pid.
 
 step_callouts(S, [_XY]) ->
-  ?PAR(lists:duplicate(8, ?CALLOUT(egol_cell, query_content, [?WILDCARD, S#state.time], ok))).
+  ?PAR(lists:duplicate(8, ?CALLOUT(egol_protocol, query_content, [?WILDCARD, S#state.time], ok))).
 
 step_return(_S, _) ->
   ok.

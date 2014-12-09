@@ -20,7 +20,6 @@
 
 -export([set/2,
          get/2,
-         query_content/2,
          history/1,
          time/1,
          run/1,
@@ -83,9 +82,6 @@ kill(XY) ->
 set(Cell, Content) ->
   cast(Cell, {set, Content}).
 
-%% ask the cell to send a message back with its contents at the given Time. 
-query_content(Cell, Time) ->
-  cast(Cell, {query_content, Time, self()}).
 
 -spec get(pid()|cell_name(), time()) -> cell_content().
 get(Cell, Time) ->
@@ -137,14 +133,6 @@ init(#state{xy=XY}=State) ->
 handle_cast({set, NewContent}, State) ->
   {noreply, State#state{content=NewContent}};
 handle_cast({From, {get, Time}}, State) ->
-  case content_at(Time, State) of
-    future ->
-      {noreply, State#state{future=[{From, Time} | State#state.future]}};
-    C ->
-      From ! {cell_content, C},              
-      {noreply, State}
-  end;
-handle_cast({query_content, Time, From}, State) ->
   case content_at(Time, State) of
     future ->
       {noreply, State#state{future=[{From, Time} | State#state.future]}};
@@ -221,7 +209,16 @@ handle_info({Collector, {next_content, NextContent}},
         false ->
           {noreply, NextState#state{mode=step}}
       end
+  end;
+handle_info({query_content, Time, From}, State) ->
+  case content_at(Time, State) of
+    future ->
+      {noreply, State#state{future=[{From, Time} | State#state.future]}};
+    C ->
+      egol_protocol:query_response(From, {cell_content, C}),              
+      {noreply, State}
   end.
+
 
 terminate(_Reason, _State) ->
   ok.
@@ -276,7 +273,7 @@ process_future(XY, Time, Content, Future) ->
 
 query_neighbours(T, Neighbours) ->
   lists:foreach( fun(N) ->
-                     query_content(N, T)
+                     egol_protocol:query_content(N, T)
                  end,
                  Neighbours).
 
