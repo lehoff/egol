@@ -259,9 +259,7 @@ collector_loop(WaitingOn, NeighbourCount, Cell, Content) ->
         false %% ignore messages we are not waiting for
               ->
           collector_loop(WaitingOn, NeighbourCount, Cell, Content)
-      end;
-    {set, NewContent} -> %% this could be fun...
-      collector_loop(WaitingOn, NeighbourCount, Cell, NewContent)
+      end
   end.
 
 
