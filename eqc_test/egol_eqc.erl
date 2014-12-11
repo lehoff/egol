@@ -11,7 +11,9 @@
     dim,
     content,
     time=0,
-    neighbour_contents = []
+    collector,
+    waiting_on = undefined,
+    neighbour_count = 0
   }).
 
 
@@ -47,13 +49,17 @@ prop_cell() ->
              fun() -> application:stop(gproc)  end %% Teardown function
          end, 
   ?FORALL(Cmds, commands(?MODULE),
+ %         ?IMPLIES(length(Cmds)>20,
           begin
             start(),
             {H, S, Res} = run_commands(?MODULE,Cmds),
             stop(S),
             pretty_commands(?MODULE, Cmds, {H, S, Res},
-                            Res == ok)
-          end)).
+                            aggregate(command_names(Cmds),
+                                      Res == ok))
+          end))
+%)
+.
 
 
 start() ->
@@ -63,17 +69,23 @@ start() ->
 
 stop(S) ->
   catch exit(whereis(egol_cell_sup), normal),
+%%  application:stop(gproc),
 %%  egol_cell:kill(S#state.id),
   ok.
 
 
 
+weight(_S, get) -> 1;
+weight(_S, cell) -> 1;
+weight(_S, flood_requery_response) -> 20;
+weight(_S, _) -> 4. 
+   
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% cell
-
 cell(XY, Dim, Content) ->
   {ok, Pid} = egol_cell_sup:start_cell(XY, Dim, Content),
+  io:format("cell STARTED~n"),
   Pid.
 
 cell_args(_S) ->
@@ -88,29 +100,151 @@ cell_next(S, Pid, [CellId, Dim, Content]) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% step
-
-step(Pid) ->
+step(Pid, Id, Time) ->
+  case gproc:where(collector_name(Id, Time)) of
+    undefined ->
+      ok;
+    OldCollector ->
+      io:format("killed old collector~n"),
+      exit(OldCollector, kill)
+  end,
   Res = egol_cell:step(Pid),
-  timer:sleep(50),
-  Res.
+  timer:sleep(100),
+  gproc:await(collector_name(Id, Time),100),
+  case gproc:where(collector_name(Id, Time)) of
+    undefined ->
+      io:format("BUMMER!!! step has NOT started collector~n");
+    Collector ->
+      io:format("collector started after step:~p~n",[Collector]),
+      Collector
+  end.
+%%  Res.
+
+collector_name(Id, Time) -> {n,l,{collector, Id, Time}}.
 
 step_args(S) ->
-  [S#state.cell].
+  [S#state.cell, S#state.id, S#state.time].
 
-step_pre(S, [Pid]) ->
+step_pre(S, [Pid, _, _]) ->
   S#state.cell /= undefined andalso
-  S#state.cell == Pid.
+  S#state.cell == Pid andalso 
+    S#state.waiting_on == undefined.
 
-step_callouts(S, [_XY]) ->
+step_callouts(S, [_Pid, _XY, _Time ]) ->
   ?PAR(lists:duplicate(8, ?CALLOUT(egol_protocol, query_content, [?WILDCARD, S#state.time], ok))).
 
 step_return(_S, _) ->
   ok.
 
-step_next(S, _Res, _Args) ->
-  S.
+step_next(S, Res, _Args) ->
 
+  S#state{waiting_on = egol_util:neighbours_at(S#state.time, 
+                                               egol_util:neighbours(S#state.id, S#state.dim)),
+          collector=Res}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+get(Pid, Time) ->
+  Res = egol_cell:get(Pid, Time),
+  io:format("get works~n"),
+  Res.
+
+get_args(S) ->
+  [S#state.cell, S#state.time].
+
+get_pre(S, _) ->
+  S#state.cell /= undefined.
+
+get_post(S, [_Pid, _Time], Res) ->
+  eq(Res, S#state.content).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+query_response(Pid, XY, Time, Content) ->
+%%  egol_protocol:query_response(Pid, {cell_content, {XY, Time}, Content}).
+  Pid ! {cell_content, {{XY, Time}, Content}}.
+  
+query_response_args(#state{id=undefined}) ->
+      [undefined, undefined, undefined, undefined];
+query_response_args(#state{cell=Cell, waiting_on=undefined}) when is_pid(Cell) ->
+      [undefined, undefined, undefined, undefined];
+query_response_args(S) ->
+  [S#state.collector, neighbour(S), S#state.time, content()];
+
+query_response_args(S) ->
+  try 
+%%    {Collector,_} = gproc:await({n,l,{collector, S#state.id, S#state.time}},100),
+    Collector =  gproc:where(collector_name(S#state.id, S#state.time)),
+    case Collector of 
+      undefined ->
+        io:format("undefined collector~n");
+      _ ->
+        io:format("collector is running~n")
+    end,
+
+    [Collector, neighbour(S), S#state.time, content()]
+  catch
+    _:_ ->
+      [undefined, undefined, undefined, undefined]
+  end.
+
+query_response_pre(#state{waiting_on=undefined}, _ ) -> false;    
+query_response_pre(S, [Collector, Neighbour, Time, _] ) ->
+  Collector /= undefined andalso
+  S#state.waiting_on /= [] andalso
+  lists:member({Neighbour, Time}, S#state.waiting_on) andalso
+    Time == S#state.time.
+
+query_response_next(S, _Res, [_, Neighbour, Time, Content]) ->
+  NC = S#state.neighbour_count + Content,
+  case lists:delete({Neighbour, Time}, S#state.waiting_on) of
+    [] ->
+      timer:sleep(50),
+      io:format("got ALL neighbour contents~n"),
+      S#state{content=next_content(S#state.content, NC),
+              time=Time+1,
+              waiting_on=undefined,
+              collector=undefined,
+              neighbour_count=0};
+    Wait ->
+      S#state{waiting_on = Wait, neighbour_count = NC}
+  end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+flood_query_response(Pid, Cells) ->
+  lists:foreach( fun(CC) ->
+                     Pid ! CC
+                 end,
+                 Cells).
+
+cell_contents(CellsAtT) ->
+  [ cell_content(CellAtT, content()) 
+    || CellAtT <- CellsAtT ].
+
+cell_content(CellAtT, Content) ->
+  {cell_content, {CellAtT, Content}}.
+
+flood_query_response_args(#state{waiting_on=[_]})  -> 
+  [undefined, undefined];
+flood_query_response_args(#state{waiting_on=Wait}=S) when Wait /= [], 
+                                                          Wait /= undefined ->
+  ?LET(CellContents, cell_contents(tl(Wait)),
+       [S#state.collector, CellContents]);
+flood_query_response_args(_) ->
+  [undefined, undefined].
+
+flood_query_response_pre(_, [undefined, _]) -> false;
+flood_query_response_pre(#state{waiting_on=[_]}, _)  -> false;
+flood_query_response_pre(#state{waiting_on=Wait}, _) when Wait /= [],
+                                                         Wait /= undefined ->
+  true;
+flood_query_response_pre(_,_) ->
+  false.
+
+flood_query_response_next(S, _Res, [_Pid, CellContents]) ->
+  Contents = [ C || {cell_content, {_, C}} <- CellContents],
+  NC = lists:sum(Contents),
+  S#state{waiting_on=[hd(S#state.waiting_on)],
+         neighbour_count=S#state.neighbour_count+NC}.
+  
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -131,3 +265,14 @@ pos_int() ->
 
 content() ->
   choose(0,1).
+
+neighbour(S) ->
+  oneof(egol_util:neighbours(S#state.id, S#state.dim)).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% HELPERS
+
+next_content(0,3) -> 1;
+next_content(C, N) when N==2; N==3 -> C;
+next_content(_,_) -> 0.
+  
