@@ -15,5 +15,7 @@ ERLC_COMPILE_OPTS= +'{parse_transform, lager_transform}'
 ERLC_OPTS= $(ERLC_COMPILE_OPTS) +debug_info
 TEST_ERLC_OPTS= $(ERLC_COMPILE_OPTS)
 
+release:
+	relx --vm_args "./config/vm.args"
 
 
