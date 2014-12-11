@@ -54,7 +54,7 @@ start({X,Y}=XY, {DimX, DimY}=Dim, InitialContent)
        0 =< Y ->
   gen_server:start(?MODULE,  
                    #state{xy=XY, dim=Dim, content=InitialContent,
-                          neighbours=neighbours(XY, Dim)}, 
+                          neighbours=egol_util:neighbours(XY, Dim)},
                    []).
 
 start_link({X,Y}=XY, {DimX, DimY}=Dim, InitialContent) 
@@ -64,7 +64,7 @@ start_link({X,Y}=XY, {DimX, DimY}=Dim, InitialContent)
        0 =< Y ->
   gen_server:start_link(?MODULE, 
                         #state{xy=XY, dim=Dim, content=InitialContent,
-                                neighbours=neighbours(XY, Dim)},
+                                neighbours=egol_util:neighbours(XY, Dim)},
                         []).
 
 
@@ -192,7 +192,7 @@ handle_info({Collector, {next_content, NextContent}},
                    future=Future, xy=XY, time=T,
                    content=Content, history=History}=State) ->
   NewFuture = process_future(XY, T+1, NextContent, Future),
-  lager:info("Cell ~p changing to ~p for time ~p", [XY, NextContent, T+1]),
+%%  lager:info("Cell ~p changing to ~p for time ~p", [XY, NextContent, T+1]),
   NextState = State#state{content=NextContent,
                           time=T+1,
                           history=[{T, Content}|History],
@@ -232,19 +232,21 @@ is_collector_running(#state{collector=Collector}) ->
     is_pid(Collector) andalso is_process_alive(Collector).
 
 
-start_collector(#state{time=T, neighbours=Neighbours, content=Content}=State) ->
+start_collector(#state{time=T, neighbours=Neighbours, 
+                       content=Content, xy=XY}=State) ->
   Cell = self(),
-  Collector = spawn( fun () ->
-                         collector_init(T, Neighbours, Cell, Content)
+  Collector = spawn_link( fun () ->
+                         collector_init(XY, T, Neighbours, Cell, Content)
                      end ),
   State#state{collector=Collector}.
 
-collector_init(Time, Neighbours, Cell, Content) ->
+collector_init(XY, Time, Neighbours, Cell, Content) ->
+  gproc:reg({n, l, {collector, XY, Time}}),
   query_neighbours(Time, Neighbours),
-  collector_loop(neighbours_at(Time, Neighbours), 0, Cell, Content).
+  collector_loop(egol_util:neighbours_at(Time, Neighbours), 0, Cell, Content).
 
 collector_loop([], NeighbourCount, Cell, Content) ->
-  Cell ! {self(), {next_content, next_content(Content, NeighbourCount)}};
+  Cell ! {self(), {next_content, egol_util:next_content(Content, NeighbourCount)}};
 collector_loop(WaitingOn, NeighbourCount, Cell, Content) ->
   receive
     {cell_content, {{{_,_},_}=XYatT, NeighbourContent}} ->
@@ -276,10 +278,6 @@ query_neighbours(T, Neighbours) ->
                      egol_protocol:query_content(N, T)
                  end,
                  Neighbours).
-
-next_content(1, 2) -> 1;
-next_content(_, 3) -> 1;
-next_content(_, _) -> 0.
                                                                     
   
 
@@ -295,14 +293,3 @@ reg(XY) ->
   gproc:reg(cell_name(XY)).
 
 cell_name(XY) -> {n,l,XY}.
-
-
-
-neighbours({X,Y}, {DimX, DimY}) ->
-  [ {Xa rem DimX, Ya rem DimY} ||
-    Xa <- lists:seq(X-1+DimX, X+1+DimX),
-    Ya <- lists:seq(Y-1+DimY, Y+1+DimY),
-    {Xa,Ya} /= {X+DimX,Y+DimY}].
-
-neighbours_at(T, Neighbours) ->
-  [ {N, T} || N <- Neighbours ].

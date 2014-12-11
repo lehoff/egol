@@ -188,7 +188,7 @@ print(N, M, Time) ->
 print_row(K, N, Board) ->
   Values = [ cell_content({N1,K}, Board)
              || N1 <- lists:seq(0, N-1) ],
-  [format_cell_value(Value)
+  [egol_util:format_cell_value(Value)
    || Value <- Values],
   io:format("~n").
 
@@ -220,10 +220,6 @@ format_lag(N) when N < 10 ->
   io_lib:format("~p", [N]);
 format_lag(_) ->
   "+".
-  
-
-format_cell_value(0) -> io:format(".");
-format_cell_value(1) -> io:format("*").
                  
 
 all_cells(N, M) ->
@@ -251,6 +247,9 @@ test(2) ->
 test(3) ->
   egol_cell_sup:start_link(),
   start(8,8,test(2));
+test(100) -> 
+  egol_cell_sup:start_link(),
+  start(100,100,test(2));
 test(4) ->
   test(3),
   timer:sleep(50),
@@ -274,7 +273,11 @@ test(6) ->
                   {3,2}, {3,3}, {3,4},
                   {4,1}, {4,5}],
   egol_cell_sup:start_link(),
-  start(7,6, InitialCells).
+  start(7,6, InitialCells);
+test(N) -> 
+  egol_cell_sup:start_link(),
+  start(N,N,test(2)).
+
        
   
 
