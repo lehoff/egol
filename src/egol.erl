@@ -42,9 +42,9 @@ start(N, M, InitialCells) ->
 
 init([N, M, InitialCells]) ->
   AllCells = all_cells(N, M),
-  Cells =  [{start_cell(XY, {N,M}, lists:member(XY, InitialCells)), XY}
-            || XY <- AllCells ],
-  egol_cell_mgr:start(Cells),
+  egol_cell_mgr:start(),
+  [{start_cell(XY, {N,M}, lists:member(XY, InitialCells)), XY}
+   || XY <- AllCells ],
   {ok, #state{size_x=N,
               size_y=M,
               mode=step}}.
@@ -274,10 +274,12 @@ test(6) ->
                   {4,1}, {4,5}],
   egol_cell_sup:start_link(),
   start(7,6, InitialCells);
+test(simple) -> 
+  egol_cell_sup:start_link(),
+  start(4,4,test(2));
 test(N) -> 
   egol_cell_sup:start_link(),
   start(N,N,test(2)).
-
        
   
 

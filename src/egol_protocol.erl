@@ -3,6 +3,8 @@
 
 -module(egol_protocol).
 
+-compile([{parse_transform, lager_transform}]).
+
 -export([query_content/2,
          query_response/2]).
 
@@ -10,7 +12,7 @@
 
 
 query_content(XY, Time) ->
-  Pid = egol_cell:where(XY),
+  Pid = egol_cell_mgr:lookup(XY),
   Pid ! {query_content, Time, self()}.
 
 

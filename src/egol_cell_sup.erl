@@ -19,7 +19,9 @@ start_link() ->
   supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 start_cell(XY, Dim, InitialContent) ->
-  supervisor:start_child(?SERVER, [XY, Dim, InitialContent]).
+  {ok, Pid} = Res = supervisor:start_child(?SERVER, [XY, Dim, InitialContent]),
+  egol_cell_mgr:reg(XY, Pid),
+  Res.
 
 %%%===================================================================
 %%% Supervisor callbacks

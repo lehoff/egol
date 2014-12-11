@@ -46,7 +46,6 @@
           history=[],
           neighbours}).
 
-%% @todo use via naming with gproc
 start({X,Y}=XY, {DimX, DimY}=Dim, InitialContent) 
   when X < DimX;
        0 =< X;
@@ -69,7 +68,7 @@ start_link({X,Y}=XY, {DimX, DimY}=Dim, InitialContent)
 
 
 where(XY) ->
-  gproc:where(cell_name(XY)).
+  egol_cell_mgr:lookup(XY).
 
 kill(XY) ->
   case where(XY) of
@@ -117,7 +116,7 @@ cast(Cell, Cmd) ->
   gen_server:cast(cell_pid(Cell), Cmd).
 
 cell_pid({_,_}=XY) ->
-  where(XY);
+  egol_cell_mgr:lookup(XY);
 cell_pid(Pid) when is_pid(Pid) ->
   Pid.
 
@@ -126,7 +125,6 @@ cell_pid(Pid) when is_pid(Pid) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 init(#state{xy=XY}=State) ->
-  reg(XY),
   {ok, State}.
 
 
@@ -192,7 +190,7 @@ handle_info({Collector, {next_content, NextContent}},
                    future=Future, xy=XY, time=T,
                    content=Content, history=History}=State) ->
   NewFuture = process_future(XY, T+1, NextContent, Future),
-%%  lager:info("Cell ~p changing to ~p for time ~p", [XY, NextContent, T+1]),
+  lager:debug("Cell ~p changing to ~p for time ~p", [XY, NextContent, T+1]),
   NextState = State#state{content=NextContent,
                           time=T+1,
                           history=[{T, Content}|History],
@@ -234,6 +232,7 @@ is_collector_running(#state{collector=Collector}) ->
 
 start_collector(#state{time=T, neighbours=Neighbours, 
                        content=Content, xy=XY}=State) ->
+  lager:debug("start_collector: neighbours=~p~n", [Neighbours]),
   Cell = self(),
   Collector = spawn_link( fun () ->
                          collector_init(XY, T, Neighbours, Cell, Content)
@@ -241,7 +240,6 @@ start_collector(#state{time=T, neighbours=Neighbours,
   State#state{collector=Collector}.
 
 collector_init(XY, Time, Neighbours, Cell, Content) ->
-  gproc:reg({n, l, {collector, XY, Time}}),
   query_neighbours(Time, Neighbours),
   collector_loop(egol_util:neighbours_at(Time, Neighbours), 0, Cell, Content).
 
@@ -289,7 +287,5 @@ content_at(Time, #state{xy=XY, history=History}) when is_integer(Time), Time >= 
   {_, Content} = lists:keyfind(Time, 1, History),
   {{XY, Time}, Content}.
 
-reg(XY) ->
-  gproc:reg(cell_name(XY)).
 
 cell_name(XY) -> {n,l,XY}.
