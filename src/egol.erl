@@ -128,7 +128,7 @@ handle_cast({print,T}, State) ->
   print(State#state.size_x, State#state.size_y, T),
   {noreply, State};
 handle_cast(print_last, State) ->
-  MinTime = min_time(), %minimum_time(State),
+  MinTime = min_time(), 
   io:format("Time is ~p.~n", [MinTime]),
   print(State#state.size_x, State#state.size_y, MinTime),
   {noreply, State};
@@ -140,7 +140,7 @@ start_cells(N, M, InitialCells, EgolPid) ->
   AllCells = all_cells(N, M),
   [{start_cell(XY, {N,M}, lists:member(XY, InitialCells)), XY}
    || XY <- AllCells],
-  gen_server:cast(EgolPid, init_done).
+   gen_server:cast(EgolPid, init_done).
 
 
 handle_call(mode, _From, State) ->

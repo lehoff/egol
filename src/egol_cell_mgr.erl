@@ -68,12 +68,10 @@ handle_cast({reg, XY, Pid},
   {noreply, NextState}.
 
 handle_info({'DOWN', Ref, process, _Pid, _Info}, 
-            #state{cells=Cells, monitors=Monitors}=State) ->
+            #state{monitors=Monitors}=State) ->
   {value, XY} = gb_trees:lookup(Ref, Monitors),
   ets:delete(mgr_xy, XY),
-  {noreply, State#state{%cells=gb_trees:delete(XY, Cells),
-                        monitors=gb_trees:delete(Ref, Monitors)}
-  }.
+  {noreply, State#state{monitors=gb_trees:delete(Ref, Monitors)}}.
 
 terminate(_Reason, _State) ->
   ets:delete(mgr_xy).

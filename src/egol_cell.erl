@@ -232,15 +232,15 @@ is_collector_running(#state{collector=Collector}) ->
 
 
 start_collector(#state{time=T, neighbours=Neighbours, 
-                       content=Content, xy=XY}=State) ->
+                       content=Content}=State) ->
   lager:debug("start_collector: neighbours=~p~n", [Neighbours]),
   Cell = self(),
   Collector = spawn_link( fun () ->
-                         collector_init(XY, T, Neighbours, Cell, Content)
+                         collector_init(T, Neighbours, Cell, Content)
                      end ),
   State#state{collector=Collector}.
 
-collector_init(XY, Time, Neighbours, Cell, Content) ->
+collector_init(Time, Neighbours, Cell, Content) ->
   query_neighbours(Time, Neighbours),
   collector_loop(egol_util:neighbours_at(Time, Neighbours), 0, Cell, Content).
 
