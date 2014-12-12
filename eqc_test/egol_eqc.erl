@@ -45,8 +45,8 @@ prop_cell() ->
   ?SETUP(fun() -> 
              %% setup mocking here
              eqc_mocking:start_mocking(api_spec()),  
-%%             fun() -> ok end
-             fun() -> application:stop(gproc)  end %% Teardown function
+             fun() -> ok end
+%%             fun() -> application:stop(gproc)  end %% Teardown function
          end, 
   ?FORALL(Cmds, commands(?MODULE),
  %         ?IMPLIES(length(Cmds)>20,
@@ -63,12 +63,15 @@ prop_cell() ->
 
 
 start() ->
-  application:start(gproc),
+  egol_time:init(),
+  egol_cell_mgr:start(),
   egol_cell_sup:start_link(),
   ok.
 
 stop(S) ->
   catch exit(whereis(egol_cell_sup), normal),
+  catch exit(whereis(egol_cell_mgr), normal),
+  egol_time:stop(),
 %%  application:stop(gproc),
 %%  egol_cell:kill(S#state.id),
   ok.
@@ -101,23 +104,25 @@ cell_next(S, Pid, [CellId, Dim, Content]) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 step(Pid, Id, Time) ->
-  case gproc:where(collector_name(Id, Time)) of
-    undefined ->
-      ok;
-    OldCollector ->
-      io:format("killed old collector~n"),
-      exit(OldCollector, kill)
-  end,
-  Res = egol_cell:step(Pid),
+  %% case gproc:where(collector_name(Id, Time)) of
+  %%   undefined ->
+  %%     ok;
+  %%   OldCollector ->
+  %%     io:format("killed old collector~n"),
+  %%     exit(OldCollector, kill)
+  %% end,
+  CollectorPid = egol_cell:step(Pid),
   timer:sleep(100),
-  gproc:await(collector_name(Id, Time),100),
-  case gproc:where(collector_name(Id, Time)) of
-    undefined ->
-      io:format("BUMMER!!! step has NOT started collector~n");
-    Collector ->
-      io:format("collector started after step:~p~n",[Collector]),
-      Collector
-  end.
+  CollectorPid.
+  %% timer:sleep(100),
+  %% gproc:await(collector_name(Id, Time),100),
+  %% case gproc:where(collector_name(Id, Time)) of
+  %%   undefined ->
+  %%     io:format("BUMMER!!! step has NOT started collector~n");
+  %%   Collector ->
+  %%     io:format("collector started after step:~p~n",[Collector]),
+  %%     Collector
+  %% end.
 %%  Res.
 
 collector_name(Id, Time) -> {n,l,{collector, Id, Time}}.

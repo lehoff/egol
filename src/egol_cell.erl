@@ -105,7 +105,7 @@ pause(Cell) ->
   cast(Cell, pause).
 
 step(Cell) ->
-  cast(Cell, step).
+  call(Cell, step).
 
 
 
@@ -182,7 +182,18 @@ handle_call({get, Time}, _From, State) ->
       {reply, future, State};
     {_, C} ->
       {reply, C, State}
+  end;
+handle_call(step, _From, State) ->
+  case is_collector_running(State) of
+    true ->
+      Reply = State#state.collector,
+      {reply, Reply, State#state{mode=step}};
+    false ->
+      NewState = start_collector(State),
+      Reply = NewState#state.collector,
+      {reply, Reply, NewState#state{mode=step}}
   end.
+
 
   
 
