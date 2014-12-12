@@ -77,15 +77,13 @@ run_until(EndTime) ->
   gen_server:cast(?SERVER,{run_until, EndTime}).
 
 minmax() ->
-  egol_time:minmax().
+  {egol_time:min(), egol_time:max()}.
 
 max_time() ->
-  {_Min, Max} = egol_time:minmax(),
-  Max.
+  egol_time:max().
 
 min_time() ->
-  {Min, _Max} = egol_time:minmax(),
-  Min.
+  egol_time:min().
 
 
 mode() ->
@@ -138,8 +136,10 @@ handle_cast(print_lag, State) ->
 
 start_cells(N, M, InitialCells, EgolPid) ->
   AllCells = all_cells(N, M),
-  [{start_cell(XY, {N,M}, lists:member(XY, InitialCells)), XY}
-   || XY <- AllCells],
+  lists:foreach( fun(XY) ->
+                     start_cell(XY, {N,M}, lists:member(XY, InitialCells))
+                 end,
+                 AllCells ),
    gen_server:cast(EgolPid, init_done).
 
 
@@ -149,7 +149,7 @@ handle_call(mode, _From, State) ->
 handle_info(_Msg, State) ->
   {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, _State) -> 
   ok.
 
 code_change(_OldVsn, State, _Extra) ->

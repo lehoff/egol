@@ -60,7 +60,7 @@ handle_call(count, _From, State) ->
 
 handle_cast({reg, XY, Pid}, 
             #state{monitors=Monitors}=State) ->
-  lager:debug("mgr reg ~p ~p", [XY, Pid]),
+  %%  lager:debug("mgr reg ~p ~p", [XY, Pid]),
   NewRef = erlang:monitor(process, Pid),
   ets:insert(mgr_xy, {XY, Pid}),
   NextState = State#state{monitors=gb_trees:enter(NewRef, XY, Monitors)},
@@ -85,7 +85,7 @@ code_change(_OldVsn, State, _Extra) ->
 pacer(Pid) ->
   case egol:mode() of
     not_started ->
-      lager:debug("pacer with mode not_started"),
+      %% lager:debug("pacer with mode not_started"),
       ok;
     step ->
       EndTime = egol:max_time(),
