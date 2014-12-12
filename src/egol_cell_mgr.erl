@@ -10,6 +10,7 @@
 -export([reg/2,
          lookup/1]).
 
+-export([count/0]).
 
 %% gen_server callbacks
 -export([init/1, 
@@ -25,7 +26,7 @@
 
 
 -record(state,
-        {cells =[] :: [{pid(), reference(), cell_coordinates()}]
+        { monitors %%:: map {reference(), cell_coordinates()}
         }).
 
 start() ->
@@ -36,67 +37,58 @@ reg(XY, Pid) when is_pid(Pid) ->
   gen_server:cast(?MODULE, {reg, XY, Pid}).
 
 lookup(XY) ->
-  gen_server:call(?MODULE, {lookup, XY}).
+  case ets:lookup(mgr_xy, XY) of
+    [] ->
+      undefined;
+    [{XY, Pid}] ->
+      Pid
+  end.
 
+count() ->
+  gen_server:call(?MODULE, count).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 init([]) ->
-  {ok, #state{}}.
+  ets:new(mgr_xy, [named_table, 
+                   {read_concurrency, true}]),                   
+  {ok, #state{monitors=gb_trees:empty()}}.
 
-handle_call({lookup, XY}, _From, #state{cells=Cells}=State) ->
-  Reply = 
-    case lists:keyfind(XY, 3, Cells) of
-        false ->
-        undefined;  %% @todo queue until registered
-      {Pid, _Ref, XY} ->
-          Pid
-    end,
-  {reply, Reply, State}.
+handle_call(count, _From, State) ->
+  C1 = ets:size(mgr_xy),
+  C2 = gb_trees:size(State#state.monitors),
+  {reply, {C1,C2}, State}.
 
-handle_cast({reg, XY, Pid}, #state{cells=Cells}=State) ->
+handle_cast({reg, XY, Pid}, 
+            #state{monitors=Monitors}=State) ->
+  lager:debug("mgr reg ~p ~p", [XY, Pid]),
   NewRef = erlang:monitor(process, Pid),
-  NextState = State#state{cells=[{Pid, NewRef, XY}|Cells]},
+  ets:insert(mgr_xy, {XY, Pid}),
+  NextState = State#state{monitors=gb_trees:enter(NewRef, XY, Monitors)},
   spawn ( fun () -> pacer(Pid) end ),
   {noreply, NextState}.
 
 handle_info({'DOWN', Ref, process, _Pid, _Info}, 
-            #state{cells=Cells}=State) ->
-  Rest = lists:keydelete(Ref, 2, Cells),
-  {noreply, State#state{cells=Rest}}.
+            #state{cells=Cells, monitors=Monitors}=State) ->
+  {value, XY} = gb_trees:lookup(Ref, Monitors),
+  ets:delete(mgr_xy, XY),
+  {noreply, State#state{%cells=gb_trees:delete(XY, Cells),
+                        monitors=gb_trees:delete(Ref, Monitors)}
+  }.
 
 terminate(_Reason, _State) ->
-  ok.
+  ets:delete(mgr_xy).
 
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
 
 
-%% loop(#state{cells=Cells}=State) ->
-%%   receive 
-%%     {'DOWN', Ref, process, _Pid, _Info} ->
-%%        Rest = lists:keydelete(Ref, 2, Cells),
-%%       loop(State#state{cells=Rest});
-%%       %% NewPid = await_restart(XY),
-%%       %% NewRef = erlang:monitor(process, NewPid),
-%%       %% NextState = State#state{cells=[{NewPid, NewRef, XY}|Rest]},
-%%       %% spawn ( fun () -> pacer(NewPid) end ),
-%%       %% loop(NextState)
-%%     {reg, XY, Pid} ->
-%%       NewRef = erlang:monitor(process, Pid),
-%%       NextState = State#state{cells=[{Pid, NewRef, XY}|Cells]},
-%%       spawn ( fun () -> pacer(Pid) end ),
-%%       loop(NextState);
-%%     {lookup, XY, From} ->
-%%       case lists:keyfind(XY, 3, Cells) of
-%%         false ->
-%%           From ! undefined;  %% @todo queue until registered
-%%         {Pid, _Ref, XY} ->
-%%           From ! Pid
-%%       end,
-%%       loop(State)
-%%   end.
 
 pacer(Pid) ->
   case egol:mode() of
+    not_started ->
+      lager:debug("pacer with mode not_started"),
+      ok;
     step ->
       EndTime = egol:max_time(),
       egol_cell:run_until(Pid, EndTime);
@@ -106,12 +98,4 @@ pacer(Pid) ->
       egol_cell:run(Pid)
   end.
 
-%% await_restart(XY) ->
-%%   timer:sleep(10),
-%%   case egol_cell:where(XY) of
-%%     undefined ->
-%%       await_restart(XY);
-%%     Pid ->
-%%       Pid
-%%   end.
       

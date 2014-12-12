@@ -125,6 +125,7 @@ cell_pid(Pid) when is_pid(Pid) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 init(#state{xy=XY}=State) ->
+  egol_time:set(XY, 0),
   {ok, State}.
 
 
@@ -191,6 +192,7 @@ handle_info({Collector, {next_content, NextContent}},
                    content=Content, history=History}=State) ->
   NewFuture = process_future(XY, T+1, NextContent, Future),
   lager:debug("Cell ~p changing to ~p for time ~p", [XY, NextContent, T+1]),
+  egol_time:set(XY, T+1),
   NextState = State#state{content=NextContent,
                           time=T+1,
                           history=[{T, Content}|History],
@@ -218,13 +220,12 @@ handle_info({query_content, Time, From}, State) ->
   end.
 
 
-terminate(_Reason, _State) ->
+terminate(_Reason, State) ->
+  egol_time:clear(State#state.xy),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
-
-
 
 is_collector_running(#state{collector=Collector}) ->
     is_pid(Collector) andalso is_process_alive(Collector).
@@ -287,5 +288,3 @@ content_at(Time, #state{xy=XY, history=History}) when is_integer(Time), Time >= 
   {_, Content} = lists:keyfind(Time, 1, History),
   {{XY, Time}, Content}.
 
-
-cell_name(XY) -> {n,l,XY}.

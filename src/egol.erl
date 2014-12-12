@@ -9,6 +9,7 @@
          run/0,
          run/1,
          run_until/1,
+         minmax/0,
          max_time/0,
          mode/0,
          pause/0,
@@ -25,7 +26,8 @@
          terminate/2, 
          code_change/3]).
 
--export([test/1]).
+-export([test/1,
+         debug/0]).
 
 
 
@@ -37,17 +39,21 @@
 
 -define(SERVER, ?MODULE).
 
+
+
 start(N, M, InitialCells) ->
   gen_server:start({local, ?SERVER}, ?MODULE, [N, M, InitialCells], []).
 
 init([N, M, InitialCells]) ->
-  AllCells = all_cells(N, M),
+  egol_time:init(),
   egol_cell_mgr:start(),
-  [{start_cell(XY, {N,M}, lists:member(XY, InitialCells)), XY}
-   || XY <- AllCells ],
+  gen_server:cast(self(), {start_cells, N, M, InitialCells}),
   {ok, #state{size_x=N,
               size_y=M,
-              mode=step}}.
+              mode=not_started}}.
+
+debug() ->
+  lager:set_loglevel(lager_console_backend, debug).
 
 start_cell(XY, Dim, true) ->
   {ok, Pid} = egol_cell_sup:start_cell(XY, Dim, 1),
@@ -70,8 +76,17 @@ run(Time) ->
 run_until(EndTime) ->
   gen_server:cast(?SERVER,{run_until, EndTime}).
 
+minmax() ->
+  egol_time:minmax().
+
 max_time() ->
-  gen_server:call(?SERVER,  max_time).
+  {_Min, Max} = egol_time:minmax(),
+  Max.
+
+min_time() ->
+  {Min, _Max} = egol_time:minmax(),
+  Min.
+
 
 mode() ->
   gen_server:call(?SERVER, mode).
@@ -91,7 +106,12 @@ print_last() ->
 print_lag() ->
   gen_server:cast(?SERVER, print_lag).
 
-
+handle_cast({start_cells, N, M, InitialCells}, State) ->
+  EgolPid = self(),
+  spawn(fun() -> start_cells(N, M, InitialCells, EgolPid) end),
+  {noreply, State};
+handle_cast(init_done, State) ->
+  {noreply, State#state{mode=step}};
 handle_cast(step, State) ->
   step_cells(all_cells(State)),
   {noreply, State#state{mode=step}};
@@ -108,7 +128,7 @@ handle_cast({print,T}, State) ->
   print(State#state.size_x, State#state.size_y, T),
   {noreply, State};
 handle_cast(print_last, State) ->
-  MinTime = minimum_time(State),
+  MinTime = min_time(), %minimum_time(State),
   io:format("Time is ~p.~n", [MinTime]),
   print(State#state.size_x, State#state.size_y, MinTime),
   {noreply, State};
@@ -116,12 +136,15 @@ handle_cast(print_lag, State) ->
   print_lag(State),
   {noreply, State}.
 
+start_cells(N, M, InitialCells, EgolPid) ->
+  AllCells = all_cells(N, M),
+  [{start_cell(XY, {N,M}, lists:member(XY, InitialCells)), XY}
+   || XY <- AllCells],
+  gen_server:cast(EgolPid, init_done).
+
 
 handle_call(mode, _From, State) ->
-  {reply, State#state.mode, State};
-handle_call(max_time, _From, State) ->
-  {reply, maximum_time(State), State}.
-
+  {reply, State#state.mode, State}.
 
 handle_info(_Msg, State) ->
   {noreply, State}.
@@ -132,21 +155,7 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
-
-
-
-maximum_time(State) ->
-  AllCellPids = [ egol_cell:where(Cell) 
-                  || Cell <- all_cells(State) ],
-  LiveCells = lists:filter( fun erlang:is_pid/1, AllCellPids),
-  AllTimes = [ egol_cell:time(Cell) 
-               || Cell <- LiveCells ],
-  lists:max(AllTimes).
                                 
-
-minimum_time(State) ->
-  Times = all_times(State),
-  lists:min(Times).
 
 all_times(State) ->
   Tagged = all_times_tagged(State),
@@ -155,11 +164,6 @@ all_times(State) ->
 all_times_tagged(State) ->
   [ {XY, egol_cell:time(XY)}
     || XY <- all_cells(State) ].
-
-
-fill_cells(Cells) ->
-  [ egol_cell:set(Cell, 1)
-    || Cell <- Cells].
 
 
 step_cells(Cells) -> lists:foreach(fun egol_cell:step/1, Cells).
@@ -223,9 +227,11 @@ format_lag(_) ->
                  
 
 all_cells(N, M) ->
+  Xs = egol_util:shuffle(lists:seq(0, N - 1)),
+  Ys = egol_util:shuffle(lists:seq(0, M - 1)),
   [ {X, Y}
-    || X <- lists:seq(0, N-1),
-       Y <- lists:seq(0, M-1) ].
+   || X <- Xs,
+     Y <- Ys].
 
 all_cells(#state{size_x=N, size_y=M}) ->
   all_cells(N, M).
