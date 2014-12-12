@@ -26,12 +26,7 @@ api_spec() ->
                      functions = [ #api_fun{ name = query_content, arity = 2},
                                    #api_fun{ name = query_response, arity = 2}
                                  ]
-                    }%,
-                 %% #api_module{
-                 %%    name = gproc,
-                 %%    functions = [ #api_fun{ name = where, arity=1},
-                 %%                  #api_fun{ name = reg, arity=1} ]
-                 %%   }
+                    }
                 ]}.
   
 
@@ -46,7 +41,6 @@ prop_cell() ->
              %% setup mocking here
              eqc_mocking:start_mocking(api_spec()),  
              fun() -> ok end
-%%             fun() -> application:stop(gproc)  end %% Teardown function
          end, 
   ?FORALL(Cmds, commands(?MODULE),
  %         ?IMPLIES(length(Cmds)>20,
@@ -72,8 +66,6 @@ stop(S) ->
   catch exit(whereis(egol_cell_sup), normal),
   catch exit(whereis(egol_cell_mgr), normal),
   egol_time:stop(),
-%%  application:stop(gproc),
-%%  egol_cell:kill(S#state.id),
   ok.
 
 
@@ -88,7 +80,7 @@ weight(_S, _) -> 4.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 cell(XY, Dim, Content) ->
   {ok, Pid} = egol_cell_sup:start_cell(XY, Dim, Content),
-  io:format("cell STARTED~n"),
+%  io:format("cell STARTED~n"),
   Pid.
 
 cell_args(_S) ->
@@ -104,28 +96,9 @@ cell_next(S, Pid, [CellId, Dim, Content]) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 step(Pid, Id, Time) ->
-  %% case gproc:where(collector_name(Id, Time)) of
-  %%   undefined ->
-  %%     ok;
-  %%   OldCollector ->
-  %%     io:format("killed old collector~n"),
-  %%     exit(OldCollector, kill)
-  %% end,
   CollectorPid = egol_cell:step(Pid),
   timer:sleep(100),
   CollectorPid.
-  %% timer:sleep(100),
-  %% gproc:await(collector_name(Id, Time),100),
-  %% case gproc:where(collector_name(Id, Time)) of
-  %%   undefined ->
-  %%     io:format("BUMMER!!! step has NOT started collector~n");
-  %%   Collector ->
-  %%     io:format("collector started after step:~p~n",[Collector]),
-  %%     Collector
-  %% end.
-%%  Res.
-
-collector_name(Id, Time) -> {n,l,{collector, Id, Time}}.
 
 step_args(S) ->
   [S#state.cell, S#state.id, S#state.time].
@@ -142,7 +115,7 @@ step_return(_S, _) ->
   ok.
 
 step_next(S, Res, _Args) ->
-
+  io:format("step_next time:~p~n", [S#state.time]),
   S#state{waiting_on = egol_util:neighbours_at(S#state.time, 
                                                egol_util:neighbours(S#state.id, S#state.dim)),
           collector=Res}.
@@ -150,7 +123,7 @@ step_next(S, Res, _Args) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 get(Pid, Time) ->
   Res = egol_cell:get(Pid, Time),
-  io:format("get works~n"),
+%  io:format("get works~n"),
   Res.
 
 get_args(S) ->
@@ -164,7 +137,6 @@ get_post(S, [_Pid, _Time], Res) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 query_response(Pid, XY, Time, Content) ->
-%%  egol_protocol:query_response(Pid, {cell_content, {XY, Time}, Content}).
   Pid ! {cell_content, {{XY, Time}, Content}}.
   
 query_response_args(#state{id=undefined}) ->
@@ -172,24 +144,7 @@ query_response_args(#state{id=undefined}) ->
 query_response_args(#state{cell=Cell, waiting_on=undefined}) when is_pid(Cell) ->
       [undefined, undefined, undefined, undefined];
 query_response_args(S) ->
-  [S#state.collector, neighbour(S), S#state.time, content()];
-
-query_response_args(S) ->
-  try 
-%%    {Collector,_} = gproc:await({n,l,{collector, S#state.id, S#state.time}},100),
-    Collector =  gproc:where(collector_name(S#state.id, S#state.time)),
-    case Collector of 
-      undefined ->
-        io:format("undefined collector~n");
-      _ ->
-        io:format("collector is running~n")
-    end,
-
-    [Collector, neighbour(S), S#state.time, content()]
-  catch
-    _:_ ->
-      [undefined, undefined, undefined, undefined]
-  end.
+  [S#state.collector, neighbour(S), S#state.time, content()].
 
 query_response_pre(#state{waiting_on=undefined}, _ ) -> false;    
 query_response_pre(S, [Collector, Neighbour, Time, _] ) ->
