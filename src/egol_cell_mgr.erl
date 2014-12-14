@@ -8,7 +8,8 @@
 -export([start/0]).
 
 -export([reg/2,
-         lookup/1]).
+         lookup/1,
+         set_mode/1]).
 
 -export([count/0]).
 
@@ -26,7 +27,8 @@
 
 
 -record(state,
-        { monitors %%:: map {reference(), cell_coordinates()}
+        { mode = step,
+          monitors %%:: map {reference(), cell_coordinates()}
         }).
 
 start() ->
@@ -35,6 +37,9 @@ start() ->
 
 reg(XY, Pid) when is_pid(Pid) ->
   gen_server:cast(?MODULE, {reg, XY, Pid}).
+
+set_mode(Mode) ->
+  gen_server:cast(?MODULE, {set_mode, Mode}).
 
 lookup(XY) ->
   case ets:lookup(mgr_xy, XY) of
@@ -64,8 +69,10 @@ handle_cast({reg, XY, Pid},
   NewRef = erlang:monitor(process, Pid),
   ets:insert(mgr_xy, {XY, Pid}),
   NextState = State#state{monitors=gb_trees:enter(NewRef, XY, Monitors)},
-  spawn ( fun () -> pacer(Pid) end ),
-  {noreply, NextState}.
+  spawn ( fun () -> pacer(Pid, State#state.mode) end ),
+  {noreply, NextState};
+handle_cast({set_mode, Mode}, State) ->
+  {noreply, State#state{mode=Mode}}.
 
 handle_info({'DOWN', Ref, process, _Pid, _Info}, 
             #state{monitors=Monitors}=State) ->
@@ -82,18 +89,12 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-pacer(Pid) ->
-  case egol:mode() of
-    not_started ->
-      %% lager:debug("pacer with mode not_started"),
-      ok;
-    step ->
-      EndTime = egol:max_time(),
-      egol_cell:run_until(Pid, EndTime);
-    {run_until, EndTime} ->
-      egol_cell:run_until(Pid, EndTime);
-    run ->
-      egol_cell:run(Pid)
-  end.
+pacer(Pid, step) ->
+  EndTime = egol_time:max(),
+  egol_cell:run_until(Pid, EndTime);
+pacer(Pid, {run_until, EndTime}) ->
+  egol_cell:run_until(Pid, EndTime);
+pacer(Pid, run) ->
+  egol_cell:run(Pid).
 
       
