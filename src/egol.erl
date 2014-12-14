@@ -115,7 +115,7 @@ handle_cast(step, State) ->
   step_cells(all_cells(State)),
   {noreply, State#state{mode=step}};
 handle_cast(run, State) ->
-  egol_cell_mgr:set_mode(Run),
+  egol_cell_mgr:set_mode(run),
   run_cells(all_cells(State)),
   {noreply, State#state{mode=run}};
 handle_cast({run_until, EndTime}, State) ->
