@@ -62,7 +62,7 @@ start() ->
   egol_cell_sup:start_link(),
   ok.
 
-stop(S) ->
+stop(_S) ->
   catch exit(whereis(egol_cell_sup), normal),
   catch exit(whereis(egol_cell_mgr), normal),
   egol_time:stop(),
@@ -95,7 +95,7 @@ cell_next(S, Pid, [CellId, Dim, Content]) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-step(Pid, Id, Time) ->
+step(Pid, _Id, _Time) ->
   egol_cell:step(Pid),
   timer:sleep(100),
   egol_cell:collector(Pid).
@@ -115,7 +115,7 @@ step_return(_S, _) ->
   ok.
 
 step_next(S, Res, _Args) ->
-  io:format("step_next time:~p~n", [S#state.time]),
+%  io:format("step_next time:~p~n", [S#state.time]),
   S#state{waiting_on = egol_util:neighbours_at(S#state.time, 
                                                egol_util:neighbours(S#state.id, S#state.dim)),
           collector=Res}.
@@ -158,7 +158,7 @@ query_response_next(S, _Res, [_, Neighbour, Time, Content]) ->
   case lists:delete({Neighbour, Time}, S#state.waiting_on) of
     [] ->
       timer:sleep(50),
-      io:format("got ALL neighbour contents~n"),
+ %     io:format("got ALL neighbour contents~n"),
       S#state{content=next_content(S#state.content, NC),
               time=Time+1,
               waiting_on=undefined,
@@ -169,11 +169,11 @@ query_response_next(S, _Res, [_, Neighbour, Time, Content]) ->
   end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-flood_query_response(Pid, Cells) ->
+flood_query_response(Pid, CellContents) ->
   lists:foreach( fun(CC) ->
                      Pid ! CC
                  end,
-                 Cells).
+                 CellContents).
 
 cell_contents(CellsAtT) ->
   [ cell_content(CellAtT, content()) 
@@ -205,6 +205,29 @@ flood_query_response_next(S, _Res, [_Pid, CellContents]) ->
   S#state{waiting_on=[hd(S#state.waiting_on)],
          neighbour_count=S#state.neighbour_count+NC}.
   
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+complete_step(Pid, CellContents) ->
+  flood_query_response(Pid, tl(CellContents)),
+  {cell_content, {{XY, Time}, Content}} = hd(CellContents),
+  query_response(Pid, XY, Time, Content).
+
+complete_step_args(#state{waiting_on=Wait}=S) when is_list(Wait) andalso
+                                                   length(Wait) > 1 ->
+  [S#state.collector, cell_contents(Wait)];
+complete_step_args(_) ->
+  [undefined, undefined].
+
+complete_step_pre(#state{waiting_on=Wait}) when is_list(Wait) andalso
+                                                length(Wait) > 1 ->
+  true;
+complete_step_pre(_) ->
+  false.
+
+complete_step_next(S, Res, [Pid, CellContents]) ->
+  S2 = flood_query_response_next(S, Res, [Pid, tl(CellContents)]),
+  {cell_content, {{XY, Time}, Content}} = hd(CellContents),
+  query_response_next(S2, Res, [Pid, XY, Time, Content]).
+
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
