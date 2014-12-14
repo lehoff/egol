@@ -27,6 +27,9 @@
          pause/1,
          step/1]).
 
+%% for testing only!!
+-export([collector/1]).
+
 -type cell_content() :: 0 | 1.
 -type cell_name() :: {integer(), integer()}.
 -type time() :: integer().
@@ -105,9 +108,10 @@ pause(Cell) ->
   cast(Cell, pause).
 
 step(Cell) ->
-  call(Cell, step).
+  cast(Cell, step).
 
-
+collector(Cell) ->
+  call(Cell, collector).
 
 call(Cell, Cmd) ->
   gen_server:call(cell_pid(Cell), Cmd).
@@ -170,7 +174,15 @@ handle_cast({run_until, EndTime},
       end
   end;
 handle_cast(pause, State) ->
-  {noreply, State#state{mode=step}}.
+  {noreply, State#state{mode=step}};
+handle_cast(step, State) ->
+  case is_collector_running(State) of
+    true ->
+      {noreply, State#state{mode=step}};
+    false ->
+      NewState = start_collector(State),
+      {noreply, NewState#state{mode=step}}
+  end.
 
 handle_call(history, _From, State) ->
   {reply, State#state.history, State};
@@ -183,17 +195,13 @@ handle_call({get, Time}, _From, State) ->
     {_, C} ->
       {reply, C, State}
   end;
-handle_call(step, _From, State) ->
+handle_call(collector, _From, State) ->
   case is_collector_running(State) of
     true ->
-      Reply = State#state.collector,
-      {reply, Reply, State#state{mode=step}};
+      {reply, State#state.collector, State};
     false ->
-      NewState = start_collector(State),
-      Reply = NewState#state.collector,
-      {reply, Reply, NewState#state{mode=step}}
+      {reply, undefined, State}
   end.
-
 
   
 

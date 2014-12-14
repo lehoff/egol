@@ -96,9 +96,9 @@ cell_next(S, Pid, [CellId, Dim, Content]) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 step(Pid, Id, Time) ->
-  CollectorPid = egol_cell:step(Pid),
+  egol_cell:step(Pid),
   timer:sleep(100),
-  CollectorPid.
+  egol_cell:collector(Pid).
 
 step_args(S) ->
   [S#state.cell, S#state.id, S#state.time].
