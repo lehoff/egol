@@ -90,6 +90,7 @@ cell_args(_S) ->
 cell_pre(S, _) ->
   S#state.cell == undefined.
 
+
 cell_next(S, Pid, [CellId, Dim, Content]) ->
   S#state{cell=Pid, id=CellId, dim=Dim, content=Content}.
 
@@ -136,24 +137,24 @@ get_post(S, [_Pid, _Time], Res) ->
   eq(Res, S#state.content).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-query_response(Pid, XY, Time, Content) ->
-  Pid ! {cell_content, {{XY, Time}, Content}}.
+query_response(Pid, Resp) ->
+  send_query_response(Pid, Resp).
   
 query_response_args(#state{id=undefined}) ->
-      [undefined, undefined, undefined, undefined];
+      [undefined, undefined];
 query_response_args(#state{cell=Cell, waiting_on=undefined}) when is_pid(Cell) ->
-      [undefined, undefined, undefined, undefined];
+      [undefined, undefined];
 query_response_args(S) ->
-  [S#state.collector, neighbour(S), S#state.time, content()].
+  [S#state.collector, {{neighbour(S), S#state.time}, content()}].
 
 query_response_pre(#state{waiting_on=undefined}, _ ) -> false;    
-query_response_pre(S, [Collector, Neighbour, Time, _] ) ->
+query_response_pre(S, [Collector, {{Neighbour, Time}, _}] ) ->
   Collector /= undefined andalso
   S#state.waiting_on /= [] andalso
   lists:member({Neighbour, Time}, S#state.waiting_on) andalso
     Time == S#state.time.
 
-query_response_next(S, _Res, [_, Neighbour, Time, Content]) ->
+query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}]) ->
   NC = S#state.neighbour_count + Content,
   case lists:delete({Neighbour, Time}, S#state.waiting_on) of
     [] ->
@@ -171,7 +172,7 @@ query_response_next(S, _Res, [_, Neighbour, Time, Content]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 flood_query_response(Pid, CellContents) ->
   lists:foreach( fun(CC) ->
-                     Pid ! CC
+                     send_query_response(Pid, CC)
                  end,
                  CellContents).
 
@@ -180,7 +181,7 @@ cell_contents(CellsAtT) ->
     || CellAtT <- CellsAtT ].
 
 cell_content(CellAtT, Content) ->
-  {cell_content, {CellAtT, Content}}.
+  {CellAtT, Content}.
 
 flood_query_response_args(#state{waiting_on=[_]})  -> 
   [undefined, undefined];
@@ -200,7 +201,7 @@ flood_query_response_pre(_,_) ->
   false.
 
 flood_query_response_next(S, _Res, [_Pid, CellContents]) ->
-  Contents = [ C || {cell_content, {_, C}} <- CellContents],
+  Contents = [ C || {_, C} <- CellContents],
   NC = lists:sum(Contents),
   S#state{waiting_on=[hd(S#state.waiting_on)],
          neighbour_count=S#state.neighbour_count+NC}.
@@ -208,8 +209,7 @@ flood_query_response_next(S, _Res, [_Pid, CellContents]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 complete_step(Pid, CellContents) ->
   flood_query_response(Pid, tl(CellContents)),
-  {cell_content, {{XY, Time}, Content}} = hd(CellContents),
-  query_response(Pid, XY, Time, Content).
+  query_response(Pid, hd(CellContents)).
 
 complete_step_args(#state{waiting_on=Wait}=S) when is_list(Wait) andalso
                                                    length(Wait) > 1 ->
@@ -225,9 +225,23 @@ complete_step_pre(_) ->
 
 complete_step_next(S, Res, [Pid, CellContents]) ->
   S2 = flood_query_response_next(S, Res, [Pid, tl(CellContents)]),
-  {cell_content, {{XY, Time}, Content}} = hd(CellContents),
-  query_response_next(S2, Res, [Pid, XY, Time, Content]).
+  query_response_next(S2, Res, [Pid, hd(CellContents)]).
 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% kill(Id, EndTime, NeighbourHistory) ->
+%%   egol_cell:kill(Id),
+%%   timer:sleep(100),
+%%   Pid = egol_cell_mgr:lookup(Id),
+%%   Collector = egol_cell:collector(Pid),
+%%   drive_collector(Pid, Collector, 0, EndTime, NeighbourHistory),
+%%   Pid.
+
+%% %% go forward until the cell has progressed to max time
+%% drive_collector(_Pid, _Collector, T, T, NeighbourHistory) ->
+%%   ;
+%% drive_collector(Pid, Collector, T, EndTime, NeighbourHistory) ->
+  
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -259,3 +273,5 @@ next_content(0,3) -> 1;
 next_content(C, N) when N==2; N==3 -> C;
 next_content(_,_) -> 0.
   
+send_query_response(Pid, {{_XY,_T}, _C}=Resp) ->
+  Pid ! {cell_content, Resp}.  
