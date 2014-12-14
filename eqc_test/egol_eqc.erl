@@ -13,7 +13,8 @@
     time=0,
     collector,
     waiting_on = undefined,
-    neighbour_count = 0
+    neighbour_count = 0,
+    neighbour_history = []
   }).
 
 
@@ -154,7 +155,7 @@ query_response_pre(S, [Collector, {{Neighbour, Time}, _}] ) ->
   lists:member({Neighbour, Time}, S#state.waiting_on) andalso
     Time == S#state.time.
 
-query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}]) ->
+query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}=Resp]) ->
   NC = S#state.neighbour_count + Content,
   case lists:delete({Neighbour, Time}, S#state.waiting_on) of
     [] ->
@@ -164,9 +165,11 @@ query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}]) ->
               time=Time+1,
               waiting_on=undefined,
               collector=undefined,
-              neighbour_count=0};
+              neighbour_count=0,
+              neighbour_history=S#state.neighbour_history ++ [Resp]};
     Wait ->
-      S#state{waiting_on = Wait, neighbour_count = NC}
+      S#state{waiting_on = Wait, neighbour_count = NC,
+              neighbour_history=S#state.neighbour_history ++ [Resp]}
   end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -204,7 +207,8 @@ flood_query_response_next(S, _Res, [_Pid, CellContents]) ->
   Contents = [ C || {_, C} <- CellContents],
   NC = lists:sum(Contents),
   S#state{waiting_on=[hd(S#state.waiting_on)],
-         neighbour_count=S#state.neighbour_count+NC}.
+          neighbour_count=S#state.neighbour_count+NC,
+         neighbour_history=S#state.neighbour_history ++ CellContents}.
   
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 complete_step(Pid, CellContents) ->
