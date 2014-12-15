@@ -15,8 +15,7 @@
     collector,
     waiting_on = undefined,
     neighbour_count = 0,
-    neighbour_history = [],
-    has_killed = false
+    neighbour_history = []
   }).
 
 
@@ -94,10 +93,14 @@ stop(S) ->
 
 
 %%weight(_S, kill) -> 0;
+weight(#state{id=undefined}, Cmd) when Cmd /= cell -> 0;
+weight(#state{waiting_on=W}, step) when is_list(W) -> 0;
 weight(_S, get) -> 1;
 weight(_S, cell) -> 1;
-weight(_S, flood_requery_response) -> 20;
-weight(_S, _) -> 4. 
+weight(_S, requery_response) -> 20;
+%weight(_S, complete_step) -> 0;
+weight(_S, kill) -> 3; 
+weight(_S, _) -> 2.
    
 
 
@@ -197,8 +200,8 @@ query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}=Resp]) ->
   NC = S#state.neighbour_count + Content,
   case lists:delete({Neighbour, Time}, S#state.waiting_on) of
     [] ->
-      timer:sleep(50),
- %     %io:format("got ALL neighbour contents~n"),
+      timer:sleep(100),
+      io:format("got ALL neighbour contents=~p~n",[NC]),
       S#state{content=next_content(S#state.content, NC),
               time=Time+1,
               waiting_on=undefined,
@@ -209,67 +212,6 @@ query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}=Resp]) ->
       S#state{waiting_on = Wait, neighbour_count = NC,
               neighbour_history=S#state.neighbour_history ++ [Resp]}
   end.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-flood_query_response(Pid, CellContents) ->
-  %io:format("flood_query_response(~p)~n", [Pid]),
-  lists:foreach( fun(CC) ->
-                     send_query_response(Pid, CC)
-                 end,
-                 CellContents).
-
-cell_contents(CellsAtT) ->
-  [ cell_content(CellAtT, content()) 
-    || CellAtT <- CellsAtT ].
-
-cell_content(CellAtT, Content) ->
-  {CellAtT, Content}.
-
-flood_query_response_args(#state{waiting_on=[_]})  -> 
-  [undefined, undefined];
-flood_query_response_args(#state{waiting_on=Wait}=S) when Wait /= [], 
-                                                          Wait /= undefined ->
-  ?LET(CellContents, cell_contents(tl(Wait)),
-       [S#state.collector, CellContents]);
-flood_query_response_args(_) ->
-  [undefined, undefined].
-
-flood_query_response_pre(_, [undefined, _]) -> false;
-flood_query_response_pre(#state{waiting_on=[_]}, _)  -> false;
-flood_query_response_pre(#state{waiting_on=Wait}, _) when Wait /= [],
-                                                         Wait /= undefined ->
-  true;
-flood_query_response_pre(_,_) ->
-  false.
-
-flood_query_response_next(S, _Res, [_Pid, CellContents]) ->
-  Contents = [ C || {_, C} <- CellContents],
-  NC = lists:sum(Contents),
-  S#state{waiting_on=[hd(S#state.waiting_on)],
-          neighbour_count=S#state.neighbour_count+NC,
-         neighbour_history=S#state.neighbour_history ++ CellContents}.
-  
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-complete_step(Pid, CellContents) ->
-  %io:format("complete_step(~p)~n", [Pid]),
-  flood_query_response(Pid, tl(CellContents)),
-  query_response(Pid, hd(CellContents)).
-
-complete_step_args(#state{waiting_on=Wait}=S) when is_list(Wait) andalso
-                                                   length(Wait) > 1 ->
-  [S#state.collector, cell_contents(Wait)];
-complete_step_args(_) ->
-  [undefined, undefined].
-
-complete_step_pre(#state{waiting_on=Wait}, [_,_]) when is_list(Wait) andalso
-                                                       length(Wait) > 1 ->
-  true;
-complete_step_pre(_, [_,_]) ->
-  false.
-
-complete_step_next(S, Res, [Pid, CellContents]) ->
-  S2 = flood_query_response_next(S, Res, [Pid, tl(CellContents)]),
-  query_response_next(S2, Res, [Pid, hd(CellContents)]).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -308,7 +250,10 @@ drive_collector(_Pid, Collector, T, T, _NeighbourHistory) ->
 drive_collector(Pid, Collector, T, EndTime, NeighbourHistory) ->
   %% @todo consider filtering out the CellContents not for this time step, though
   %% they should do no harm.
-  send_all_query_responses(Collector, NeighbourHistory),
+  ResponsesForTime = [ R 
+                      || {{_,RTime},_}=R <- NeighbourHistory,
+                         RTime == T ],
+  send_all_query_responses(Collector, ResponsesForTime),
   timer:sleep(100),
   NewCollector = egol_cell:collector(Pid),
   drive_collector(Pid, NewCollector, T+1, EndTime, NeighbourHistory).
@@ -324,7 +269,7 @@ kill_args(#state{id=Id, time=Time, neighbour_history=NH}) ->
 
 kill_pre(S, [Id, EndTime, _]) ->
   S#state.cell /= undefined andalso
-    S#state.id == Id andalso not(S#state.has_killed) andalso
+    S#state.id == Id andalso 
     S#state.time == EndTime.
 
 
@@ -334,23 +279,12 @@ kill_callouts(_S, [_Id, EndTime, _NH]) ->
   ?SEQ( [ step_callouts_for_time(T) 
           || T <- lists:seq(0, EndTime-1) ] ).
 
-%% kill_post(#state{time=0}, [_Id, _EndTime, _NH], {_Cell, undefined}) ->
-%%   true;
-%% kill_post(#state{time=0}, [_Id, _EndTime, _NH], {_, _}) ->
-%%   false;
-%% kill_post(_S, [_Id, _EndTime, _NH], {_Cell, undefined}) ->
-%%   false;
-%% kill_post(_S, [_Id, _EndTime, _NH], {_Cell, _Collector}) ->
-%%   true.
-
-
 %% after a kill the cell will run up to the EndTime and then await a step before it
 %% can continue since it has not received a step command to drive it forward, so
 %% waiting_on has to be undefined.
 kill_next(S, Pid, %{Pid, Collector}, 
           [_Id, EndTime, _NH]) ->
   S#state{cell=Pid, collector=undefined, 
-          has_killed=true,
           waiting_on=undefined}.
     
 
