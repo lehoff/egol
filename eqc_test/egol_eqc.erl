@@ -70,7 +70,7 @@ start() ->
   ok.
 
 stop() ->
-  print_regs(),
+%%  print_regs(),
   catch exit(whereis(egol_sup), normal),
   catch egol_time:stop(),
   eqc_mocking:stop_mocking(),
@@ -93,7 +93,7 @@ stop(S) ->
   timer:sleep(100).
 
 
-weight(_S, kill) -> 0;
+%%weight(_S, kill) -> 0;
 weight(_S, get) -> 1;
 weight(_S, cell) -> 1;
 weight(_S, flood_requery_response) -> 20;
@@ -104,7 +104,7 @@ weight(_S, _) -> 4.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 cell(XY, Dim, Content) ->
   {ok, Pid} = egol_cell_sup:start_cell(XY, Dim, Content),
-  io:format("cell STARTED ~p (~p/~p)~n", [Pid, XY, Dim]),
+  %io:format("cell STARTED ~p (~p/~p)~n", [Pid, XY, Dim]),
   Pid.
 
 cell_args(_S) ->
@@ -124,7 +124,7 @@ cell_next(S, Pid, [CellId, Dim, Content]) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 step(Pid, Id, _Time) ->
-  io:format("step for ~p/~p~n", [Pid, Id]),
+  %io:format("step for ~p/~p~n", [Pid, Id]),
   egol_cell:step(Id),
   Res = egol_cell:collector(Id),
   timer:sleep(100),
@@ -134,7 +134,7 @@ step_args(S) ->
   [S#state.cell, S#state.id, S#state.time].
 
 step_pre(S, [Pid, Id, _]) ->
-  %% io:format("step_pre cell:~p, pid:~p waiting_on:~p~n",
+  %% %io:format("step_pre cell:~p, pid:~p waiting_on:~p~n",
   %%           [S#state.cell, Pid, S#state.waiting_on]), 
   S#state.id /= undefined andalso
 %%  S#state.cell == Pid  andalso 
@@ -151,7 +151,7 @@ step_callouts_for_time(Time) ->
 %%   ok.
 
 step_next(S, Res, _Args) ->
-%  io:format("step_next time:~p~n", [S#state.time]),
+%  %io:format("step_next time:~p~n", [S#state.time]),
   S#state{waiting_on = egol_util:neighbours_at(S#state.time, 
                                                egol_util:neighbours(S#state.id, S#state.dim)),
           collector=Res,
@@ -160,21 +160,23 @@ step_next(S, Res, _Args) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 get(Id, Time) ->
   Res = egol_cell:get(Id, Time),
-%  io:format("get works~n"),
+%  %io:format("get works~n"),
   Res.
 
 get_args(S) ->
   [S#state.id, S#state.time].
 
-get_pre(S, _) ->
-  S#state.id /= undefined.
+get_pre(S, [Id, Time]) ->
+  S#state.id /= undefined andalso
+    S#state.id == Id andalso
+    S#state.time == Time.
 
 get_post(S, [_Id, _Time], Res) ->
   Res == S#state.content.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 query_response(Pid, Resp) ->
-  io:format("query_response(~p)~n", [Pid]),
+  %io:format("query_response(~p)~n", [Pid]),
   send_query_response(Pid, Resp).
   
 query_response_args(#state{id=undefined}) ->
@@ -196,7 +198,7 @@ query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}=Resp]) ->
   case lists:delete({Neighbour, Time}, S#state.waiting_on) of
     [] ->
       timer:sleep(50),
- %     io:format("got ALL neighbour contents~n"),
+ %     %io:format("got ALL neighbour contents~n"),
       S#state{content=next_content(S#state.content, NC),
               time=Time+1,
               waiting_on=undefined,
@@ -210,7 +212,7 @@ query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}=Resp]) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 flood_query_response(Pid, CellContents) ->
-  io:format("flood_query_response(~p)~n", [Pid]),
+  %io:format("flood_query_response(~p)~n", [Pid]),
   lists:foreach( fun(CC) ->
                      send_query_response(Pid, CC)
                  end,
@@ -249,7 +251,7 @@ flood_query_response_next(S, _Res, [_Pid, CellContents]) ->
   
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 complete_step(Pid, CellContents) ->
-  io:format("complete_step(~p)~n", [Pid]),
+  %io:format("complete_step(~p)~n", [Pid]),
   flood_query_response(Pid, tl(CellContents)),
   query_response(Pid, hd(CellContents)).
 
@@ -277,7 +279,8 @@ kill(Id, 0, _) ->
     timer:sleep(500),
     Pid = egol_cell_mgr:lookup(Id),
     Collector = undefined,
-    {Pid, Collector}
+    %{Pid, Collector}
+    Pid
   catch
     E:M ->
       io:format("kill exception ~p:~p ~p~n", [E, M, erlang:get_stacktrace()])
@@ -285,12 +288,14 @@ kill(Id, 0, _) ->
 kill(Id, EndTime, NeighbourHistory) ->
   try
     egol_cell:kill(Id),
-    timer:sleep(500),
+    timer:sleep(100),
     Pid = egol_cell_mgr:lookup(Id),
-    io:format("kill new_pid:~p~n", [Pid]),
+    %io:format("kill new_pid:~p~n", [Pid]),
     Collector = egol_cell:collector(Pid),
-    LastCollector = drive_collector(Pid, Collector, 0, EndTime, NeighbourHistory),
-    {Pid, LastCollector}
+    %io:format("new collector: ~p~n", [Collector]),
+    drive_collector(Pid, Collector, 0, EndTime, NeighbourHistory),
+%    {Pid, LastCollector}
+    Pid
   catch
     E:M ->
       io:format("kill exception ~p:~p ~p~n", [E, M, erlang:get_stacktrace()])
@@ -317,9 +322,10 @@ send_all_query_responses(Collector, NeighbourHistory) ->
 kill_args(#state{id=Id, time=Time, neighbour_history=NH}) ->
   [Id, Time, NH].
 
-kill_pre(S, [Id, _, _]) ->
+kill_pre(S, [Id, EndTime, _]) ->
   S#state.cell /= undefined andalso
-    S#state.id == Id andalso not(S#state.has_killed).
+    S#state.id == Id andalso not(S#state.has_killed) andalso
+    S#state.time == EndTime.
 
 
 kill_callouts(_S, [_Id, 0, _]) ->
@@ -328,17 +334,24 @@ kill_callouts(_S, [_Id, EndTime, _NH]) ->
   ?SEQ( [ step_callouts_for_time(T) 
           || T <- lists:seq(0, EndTime-1) ] ).
 
-kill_post(#state{time=0}, [_Id, _EndTime, _NH], {_Cell, undefined}) ->
-  true;
-kill_post(#state{time=0}, [_Id, _EndTime, _NH], {_, _}) ->
-  false;
-kill_post(_S, [_Id, _EndTime, _NH], {_Cell, undefined}) ->
-  false;
-kill_post(_S, [_Id, _EndTime, _NH], {_Cell, _Collector}) ->
-  true.
+%% kill_post(#state{time=0}, [_Id, _EndTime, _NH], {_Cell, undefined}) ->
+%%   true;
+%% kill_post(#state{time=0}, [_Id, _EndTime, _NH], {_, _}) ->
+%%   false;
+%% kill_post(_S, [_Id, _EndTime, _NH], {_Cell, undefined}) ->
+%%   false;
+%% kill_post(_S, [_Id, _EndTime, _NH], {_Cell, _Collector}) ->
+%%   true.
 
-kill_next(S, {Pid, Collector}, [_Id, _EndTime, _NH]) ->
-  S#state{cell=Pid, collector=Collector, has_killed=true}.
+
+%% after a kill the cell will run up to the EndTime and then await a step before it
+%% can continue since it has not received a step command to drive it forward, so
+%% waiting_on has to be undefined.
+kill_next(S, Pid, %{Pid, Collector}, 
+          [_Id, EndTime, _NH]) ->
+  S#state{cell=Pid, collector=undefined, 
+          has_killed=true,
+          waiting_on=undefined}.
     
 
 
@@ -372,4 +385,10 @@ next_content(C, N) when N==2; N==3 -> C;
 next_content(_,_) -> 0.
   
 send_query_response(Pid, {{_XY,_T}, _C}=Resp) ->
-  Pid ! {cell_content, Resp}.  
+  try
+    Pid ! {cell_content, Resp}
+  catch
+    _:_ ->
+      io:format("send_query_response (~p, ~p) failed~n", 
+                [Pid, Resp])
+  end.
