@@ -130,6 +130,7 @@ cell_pid(Pid) when is_pid(Pid) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 init(#state{xy=XY}=State) ->
   egol_time:set(XY, 0),
+  egol_cell_mgr:reg(XY, self()),
   {ok, State}.
 
 

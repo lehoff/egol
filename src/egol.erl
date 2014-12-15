@@ -45,8 +45,6 @@ start(N, M, InitialCells) ->
   gen_server:start({local, ?SERVER}, ?MODULE, [N, M, InitialCells], []).
 
 init([N, M, InitialCells]) ->
-  egol_time:init(),
-  egol_cell_mgr:start(),
   gen_server:cast(self(), {start_cells, N, M, InitialCells}),
   {ok, #state{size_x=N,
               size_y=M,
@@ -254,10 +252,10 @@ test(1) ->
 test(2) ->
   [{0,0}, {1,0}, {2,0}, {2,1},{1,2}];
 test(3) ->
-  egol_cell_sup:start_link(),
+  egol_sup:start_link(),
   start(8,8,test(2));
 test(100) -> 
-  egol_cell_sup:start_link(),
+  egol__sup:start_link(),
   start(100,100,test(2));
 test(4) ->
   test(3),
@@ -281,13 +279,13 @@ test(6) ->
   InitialCells = [{2,3}, {2,5},
                   {3,2}, {3,3}, {3,4},
                   {4,1}, {4,5}],
-  egol_cell_sup:start_link(),
+  egol_sup:start_link(),
   start(7,6, InitialCells);
 test(simple) -> 
-  egol_cell_sup:start_link(),
+  egol_sup:start_link(),
   start(4,4,test(2));
 test(N) -> 
-  egol_cell_sup:start_link(),
+  egol_sup:start_link(),
   start(N,N,test(2)).
        
   

@@ -20,7 +20,7 @@ start_link() ->
 
 start_cell(XY, Dim, InitialContent) ->
   {ok, Pid} = Res = supervisor:start_child(?SERVER, [XY, Dim, InitialContent]),
-  egol_cell_mgr:reg(XY, Pid),
+%%  egol_cell_mgr:reg(XY, Pid),
   Res.
 
 %%%===================================================================

@@ -5,7 +5,7 @@
 -behaviour(gen_server).
 
 
--export([start/0]).
+-export([start_link/0]).
 
 -export([reg/2,
          lookup/1,
@@ -31,8 +31,8 @@
           monitors %%:: map {reference(), cell_coordinates()}
         }).
 
-start() ->
-  gen_server:start({local,?MODULE}, ?MODULE, [], []).
+start_link() ->
+  gen_server:start_link({local,?MODULE}, ?MODULE, [], []).
 
 
 reg(XY, Pid) when is_pid(Pid) ->
@@ -65,7 +65,7 @@ handle_call(count, _From, State) ->
 
 handle_cast({reg, XY, Pid}, 
             #state{monitors=Monitors}=State) ->
-  %%  lager:debug("mgr reg ~p ~p", [XY, Pid]),
+  lager:debug("mgr reg ~p ~p", [XY, Pid]),
   NewRef = erlang:monitor(process, Pid),
   ets:insert(mgr_xy, {XY, Pid}),
   NextState = State#state{monitors=gb_trees:enter(NewRef, XY, Monitors)},
