@@ -258,6 +258,7 @@ start_collector(#state{time=T, neighbours=Neighbours,
   Collector = spawn_link( fun () ->
                          collector_init(T, Neighbours, Cell, Content)
                      end ),
+%%  io:format("start_collector new pid ~p~n", [Collector]),
   State#state{collector=Collector}.
 
 collector_init(Time, Neighbours, Cell, Content) ->
@@ -268,7 +269,9 @@ collector_loop([], NeighbourCount, Cell, Content) ->
   Cell ! {self(), {next_content, egol_util:next_content(Content, NeighbourCount)}};
 collector_loop(WaitingOn, NeighbourCount, Cell, Content) ->
   receive
-    {cell_content, {{{_,_},_}=XYatT, NeighbourContent}} ->
+    {cell_content, {{{_,_},_}=XYatT, NeighbourContent}} = Msg ->
+      %% io:format("collector ~p got cell_content ~p - ~p~n",
+      %%           [self(), XYatT, NeighbourContent]),
       case lists:member(XYatT, WaitingOn) of
         true ->
           collector_loop(lists:delete(XYatT, WaitingOn),
@@ -276,8 +279,17 @@ collector_loop(WaitingOn, NeighbourCount, Cell, Content) ->
                          Cell, Content);
         false %% ignore messages we are not waiting for
               ->
+          %% io:format("collector got wrong message ~p~n",
+          %%           [Msg]),
           collector_loop(WaitingOn, NeighbourCount, Cell, Content)
-      end
+      end;
+    {sync_collector, From, Ref} -> %% WARNING: only for eqc testing
+      From ! Ref,
+      collector_loop(WaitingOn, NeighbourCount, Cell, Content);
+    Garbage ->
+      io:format("collector got GARBAGE ~p~n",
+                [Garbage]),
+      exit(collector_got_garbage)
   end.
 
 
