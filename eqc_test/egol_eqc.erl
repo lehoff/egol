@@ -267,8 +267,26 @@ query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}=Resp, _]) ->
               neighbour_history=S#state.neighbour_history ++ [Resp]}
   end.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+query_content(Id, Time) ->
+  send_query_content(Id, Time),
+  timer:sleep(20),
+  ok.
 
+query_content_args(S) ->
+  [S#state.id, S#state.time].
 
+query_content_pre(S, [Id, _Time]) ->
+  S#state.id /= undefined andalso
+    S#state.id == Id.
+    
+
+query_content_callouts(S, [Id, Time]) ->
+  CellContent =  {cell_content, {{Id, Time}, S#state.content}},
+  ?CALLOUT(egol_protocol, query_response, [?WILDCARD, CellContent], ok).
+
+query_content_next(S, _Res, [_Id, _Time]) ->
+  S.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 kill(Id, 0, _) ->
@@ -394,3 +412,7 @@ send_query_response(Pid, {{_XY,_T}, _C}=Resp) ->
       io:format("send_query_response (~p, ~p) failed~n", 
                 [Pid, Resp])
   end.
+
+send_query_content(Id, Time) ->
+  Pid = egol_cell_mgr:lookup(Id),
+  Pid ! {query_content, Time, self()}.
