@@ -15,7 +15,8 @@
     collector,
     waiting_on = undefined,
     neighbour_count = 0,
-    neighbour_history = []
+    neighbour_history = [],
+    kill_count=0
   }).
 
 
@@ -270,7 +271,8 @@ kill_args(#state{id=Id, time=Time, neighbour_history=NH}) ->
 kill_pre(S, [Id, EndTime, _]) ->
   S#state.cell /= undefined andalso
     S#state.id == Id andalso 
-    S#state.time == EndTime.
+    S#state.time == EndTime andalso
+    S#state.kill_count<1.
 
 
 kill_callouts(_S, [_Id, 0, _]) ->
@@ -285,7 +287,8 @@ kill_callouts(_S, [_Id, EndTime, _NH]) ->
 kill_next(S, Pid, %{Pid, Collector}, 
           [_Id, EndTime, _NH]) ->
   S#state{cell=Pid, collector=undefined, 
-          waiting_on=undefined}.
+          waiting_on=undefined,
+          kill_count=S#state.kill_count+1}.
     
 
 
