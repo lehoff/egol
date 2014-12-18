@@ -16,7 +16,8 @@
     waiting_on = undefined,
     neighbour_count = 0,
     neighbour_history = [],
-    kill_count=0
+    kill_count=0,
+    pending_query_content=[]
   }).
 
 
@@ -111,7 +112,8 @@ weight(#state{id=undefined}, Cmd) when Cmd /= cell -> 0;
 weight(#state{waiting_on=W}, step) when is_list(W) -> 0;
 weight(_S, get) -> 1;
 weight(_S, cell) -> 1;
-weight(_S, requery_response) -> 25;
+weight(_S, query_response) -> 25;
+weight(#state{waiting_on=[_]}, last_query_response) -> 100;
 %weight(_S, complete_step) -> 0;
 weight(_S, kill) -> 1; 
 weight(_S, _) -> 2.
@@ -211,74 +213,108 @@ get_post(S, [_Id, _Time], Res) ->
   Res == S#state.content.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-query_response(Pid, Resp, continue) ->
-  %io:format("query_response(~p, ~p)~n", [Pid, Resp]),
-  send_query_response(Pid, Resp);
-query_response(Pid, Resp, {Id, AwaitTime}) ->
-  %io:format("query_response(~p, ~p)~n", [Pid, Resp]),
-  send_query_response(Pid, Resp),
-  %io:format("going to await_time_change(~p,~p)~n", [Id, AwaitTime]),
-  await_time_change(Id, AwaitTime).
+query_response(CollectorPid, Resp) ->
+  io:format("query_response(~p, ~p)~n", [CollectorPid, Resp]),
+  send_query_response(CollectorPid, Resp).
   
 query_response_args(#state{id=undefined}) ->
       [undefined, undefined];
 query_response_args(#state{cell=Cell, waiting_on=undefined}) when is_pid(Cell) ->
       [undefined, undefined];
 query_response_args(S) ->
-  [S#state.collector, {{neighbour(S), S#state.time}, content()}, 
-   await_time(S)].
+  [S#state.collector, neighbour_response(S)].
 
-await_time(#state{waiting_on=[_]}=S) ->
-  {S#state.id, S#state.time+1};
-await_time(_S) ->
-  continue.
+neighbour_response(S) ->
+  %%io:format("neighbour_response: ~p~n", [S]),
+  ?LET(N, neighbour(S),
+       case lists:keyfind({N, S#state.time}, 1, S#state.neighbour_history) of
+         false ->
+           {{N, S#state.time}, content()}; 
+         Resp ->
+           Resp
+       end). 
+
+query_response_pre(_S, [undefined, undefined]) -> false;
+query_response_pre(#state{waiting_on=undefined}, _ ) -> false;    
+query_response_pre(S, [Collector, {{Neighbour, Time}, _}] ) ->
+  Collector /= undefined andalso
+  S#state.waiting_on /= [] andalso
+  lists:member({Neighbour, Time}, S#state.waiting_on) andalso
+    Time == S#state.time.
+
+query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}=Resp]) ->
+  NC = S#state.neighbour_count + Content,
+  Wait = lists:delete({Neighbour, Time}, S#state.waiting_on),
+  S#state{waiting_on = Wait, neighbour_count = NC,
+          neighbour_history=S#state.neighbour_history ++ [Resp]}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+last_query_response(CollectorPid, Resp, {Id, AwaitTime}) ->
+  send_query_response(CollectorPid, Resp),
+  await_time_change(Id, AwaitTime).
 
 await_time_change(Id, AwaitTime) ->
   case egol_cell:time(Id) of
     AwaitTime ->
       ok;
     _ ->
-      %io:format("await_time_change pid ~p/~p~n", 
-%                [egol_cell_mgr:lookup(Id), egol_cell:collector(Id)]),
+      io:format("await_time_change id ~p~n", [Id]),
+      io:format("await_time_change pid ~p/~p~n", 
+                [egol_cell_mgr:lookup(Id), egol_cell:collector(Id)]),
       timer:sleep(5),
       await_time_change(Id, AwaitTime)
   end.
 
-query_response_pre(#state{waiting_on=undefined}, _ ) -> false;    
-query_response_pre(S, [Collector, {{Neighbour, Time}, _}, _] ) ->
-  Collector /= undefined andalso
-  S#state.waiting_on /= [] andalso
-  lists:member({Neighbour, Time}, S#state.waiting_on) andalso
-    Time == S#state.time.
 
-query_response_next(S, _Res, [_, {{Neighbour, Time}, Content}=Resp, _]) ->
+last_query_response_args(#state{id=undefined}) ->
+  [undefined];
+last_query_response_args(#state{waiting_on=undefined}) ->
+  [undefined];
+last_query_response_args(#state{waiting_on=W}) when length(W) /= 1 ->
+  [undefined];
+last_query_response_args(S) ->
+  [S#state.collector, {hd(S#state.waiting_on), content()}, {S#state.id, S#state.time+1}].
+
+cell_content(#state{id=Id, time=Time, content=Content}) ->
+  {{Id, Time}, Content}.
+
+last_query_response_pre(_, [undefined]) -> false;
+last_query_response_pre(S, [_CollectorPid, _Resp, {AwaitId, _AwaitTime}]) ->
+    length(S#state.waiting_on)==1 andalso
+    S#state.id == AwaitId.
+
+last_query_response_callouts(#state{pending_query_content=[]}, _) ->
+  ?EMPTY;
+last_query_response_callouts(S, _) ->
+  ?PAR([cell_content_msg(NeighbourId, NeighbourTime, S#state.content)
+        || {NeighbourId, NeighbourTime} <- S#state.pending_query_content]).
+
+last_query_response_next(S, _Res, [_CollectorPid, {_, Content}=Resp, _AwaitIdTime]) ->
   NC = S#state.neighbour_count + Content,
-  case lists:delete({Neighbour, Time}, S#state.waiting_on) of
-    [] ->
-%      io:format("got ALL neighbour contents=~p~n",[NC]),
-      S#state{content=next_content(S#state.content, NC),
-              time=Time+1,
-              waiting_on=undefined,
-              collector=undefined,
-              neighbour_count=0,
-              neighbour_history=S#state.neighbour_history ++ [Resp]};
-    Wait ->
-      S#state{waiting_on = Wait, neighbour_count = NC,
-              neighbour_history=S#state.neighbour_history ++ [Resp]}
-  end.
+  io:format("last_query_response_next NC=~p~n", [NC]),
+  S#state{pending_query_content=[],
+          content=next_content(S#state.content, NC),
+          time=S#state.time+1,
+          waiting_on=undefined,
+          collector=undefined,
+          neighbour_count=0,
+          neighbour_history=S#state.neighbour_history ++ [Resp]}.
+
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 query_content(Id, Time) ->
   send_query_content(Id, Time),
-  timer:sleep(20),
+  timer:sleep(50),
   ok.
 
 query_content_args(S) ->
   [S#state.id, S#state.time].
 
-query_content_pre(S, [Id, _Time]) ->
+query_content_pre(S, [Id, Time]) ->
   S#state.id /= undefined andalso
-    S#state.id == Id.
+    S#state.id == Id andalso
+    S#state.time == Time.
     
 
 query_content_callouts(S, [Id, Time]) ->
@@ -287,6 +323,33 @@ query_content_callouts(S, [Id, Time]) ->
 
 query_content_next(S, _Res, [_Id, _Time]) ->
   S.
+
+
+cell_content_msg(Id, Time, Content) ->
+  {cell_content, {{Id, Time}, Content}}.
+
+cell_content_msg(S) ->
+  cell_content_msg(S#state.id, S#state.time, S#state.content).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% query_future(Id, _RequestId, Time) ->
+%%   send_query_content(Id, Time),
+%%   ok.
+
+%% query_future_args(S) ->
+%%   Pending = [ N || {N,_} <- S#state.pending_query_content ],
+%%   ?LET(Neighbour, oneof(egol_util:neighbours(S#state.id, S#state.dim) -- Pending),
+%%        [S#state.id, Neighbour, S#state.time+1]).
+
+%% query_future_pre(S, [Id, _NeighbourId, Time]) ->
+%%   S#state.id /= undefined andalso
+%%     S#state.id == Id andalso
+%%     S#state.time == (Time+1).
+
+%% query_future_next(S, _Res, [_Id, NeighbourId, Time]) ->
+%%   S#state{pending_query_content=
+%%             S#state.pending_query_content++[{NeighbourId, Time}]}.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 kill(Id, 0, _) ->
@@ -371,6 +434,7 @@ kill_next(S, Pid, %{Pid, Collector},
           [_Id, _EndTime, _NH]) ->
   S#state{cell=Pid, collector=undefined, 
           waiting_on=undefined,
+          neighbour_count=0,
           kill_count=S#state.kill_count+1}.
     
 
@@ -404,9 +468,9 @@ next_content(0,3) -> 1;
 next_content(C, N) when N==2; N==3 -> C;
 next_content(_,_) -> 0.
   
-send_query_response(Pid, {{_XY,_T}, _C}=Resp) ->
+send_query_response(Pid, {{XY,T}, C}=Resp) ->
   try
-    Pid ! {cell_content, Resp}
+    Pid ! cell_content_msg(XY,T,C)
   catch
     _:_ ->
       io:format("send_query_response (~p, ~p) failed~n", 
