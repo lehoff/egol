@@ -25,10 +25,12 @@
          run/1,
          run_until/2,
          pause/1,
-         step/1]).
+         step/1,
+         query_response/2,
+         query_content/3]).
 
-%% for testing only!!
--export([collector/1]).
+%% for testing and debugging only!!
+-export([collecting_status/1]).
 
 -type cell_content() :: 0 | 1.
 -type cell_name() :: {integer(), integer()}.
@@ -110,8 +112,14 @@ pause(Cell) ->
 step(Cell) ->
   cast(Cell, step).
 
-collector(Cell) ->
-  call(Cell, collector).
+collecting_status(Cell) ->
+  call(Cell, collecting_status).
+
+query_response(Cell, Resp) ->
+  cast(Cell, Resp).
+
+query_content(Cell, Time, FromXY) ->
+  cast(Cell, {query_content, Time, FromXY}).
 
 call(Cell, Cmd) ->
   gen_server:call(cell_pid(Cell), Cmd).
@@ -176,14 +184,22 @@ handle_cast({run_until, EndTime},
   end;
 handle_cast(pause, State) ->
   {noreply, State#state{mode=step}};
-handle_cast(step, State) ->
+handle_cast({query_content, Time, From}, State) ->
+    case content_at(Time, State) of
+    future ->
+      {noreply, State#state{future=[{From, Time} | State#state.future]}};
+    C ->
+      egol_protocol:query_response(From, {cell_content, C}),              
+      {noreply, State}
+    end;
+handle_cast(Resp, State) ->
   case is_collector_running(State) of
     true ->
-      {noreply, State#state{mode=step}};
+      State#state.collector ! Resp;
     false ->
-      NewState = start_collector(State),
-      {noreply, NewState#state{mode=step}}
-  end.
+      ok
+  end,
+  {noreply, State}.
 
 handle_call(history, _From, State) ->
   {reply, State#state.history, State};
@@ -196,10 +212,11 @@ handle_call({get, Time}, _From, State) ->
     {_, C} ->
       {reply, C, State}
   end;
-handle_call(collector, _From, State) ->
+handle_call(collecting_status, From, State) ->
   case is_collector_running(State) of
     true ->
-      {reply, State#state.collector, State};
+      State#state.collector ! {status, From},
+      {noreply, State};
     false ->
       {reply, undefined, State}
   end.
@@ -229,15 +246,16 @@ handle_info({Collector, {next_content, NextContent}},
         false ->
           {noreply, NextState#state{mode=step}}
       end
-  end;
-handle_info({query_content, Time, From}, State) ->
-  case content_at(Time, State) of
-    future ->
-      {noreply, State#state{future=[{From, Time} | State#state.future]}};
-    C ->
-      egol_protocol:query_response(From, {cell_content, C}),              
-      {noreply, State}
   end.
+%% handle_info({query_content, Time, From}, State) ->
+%%   case content_at(Time, State) of
+%%     future ->
+%%       {noreply, State#state{future=[{From, Time} | State#state.future]}};
+%%     C ->
+%%       egol_protocol:query_response(From, {cell_content, C}),              
+%%       {noreply, State}
+%%   end.
+
 
 
 terminate(_Reason, State) ->
@@ -252,17 +270,17 @@ is_collector_running(#state{collector=Collector}) ->
 
 
 start_collector(#state{time=T, neighbours=Neighbours, 
-                       content=Content}=State) ->
+                       content=Content, xy=XY}=State) ->
   lager:debug("start_collector: neighbours=~p~n", [Neighbours]),
   Cell = self(),
   Collector = spawn_link( fun () ->
-                         collector_init(T, Neighbours, Cell, Content)
+                         collector_init(T, Neighbours, Cell, XY, Content)
                      end ),
 %%  io:format("start_collector new pid ~p~n", [Collector]),
   State#state{collector=Collector}.
 
-collector_init(Time, Neighbours, Cell, Content) ->
-  query_neighbours(Time, Neighbours),
+collector_init(Time, Neighbours, Cell, XY, Content) ->
+  query_neighbours(XY, Time, Neighbours),
   collector_loop(egol_util:neighbours_at(Time, Neighbours), 0, Cell, Content).
 
 collector_loop([], NeighbourCount, Cell, Content) ->
@@ -283,8 +301,8 @@ collector_loop(WaitingOn, NeighbourCount, Cell, Content) ->
           %%           [Msg]),
           collector_loop(WaitingOn, NeighbourCount, Cell, Content)
       end;
-    {sync_collector, From, Ref} -> %% WARNING: only for eqc testing
-      From ! Ref,
+    {status, From} ->
+      gen_server:reply(From, {WaitingOn, NeighbourCount}),
       collector_loop(WaitingOn, NeighbourCount, Cell, Content);
     Garbage ->
       io:format("collector got GARBAGE ~p~n",
@@ -294,19 +312,19 @@ collector_loop(WaitingOn, NeighbourCount, Cell, Content) ->
 
 
 process_future(XY, Time, Content, Future) ->
-  {Ready, NewFuture} = lists:partition( fun({_Pid,T}) ->
+  {Ready, NewFuture} = lists:partition( fun({_FromXY,T}) ->
                                             T == Time
                                         end,
                                         Future),
-  lists:foreach( fun({Pid,_}) ->
-                     Pid ! {cell_content, {{XY,Time}, Content}}
+  lists:foreach( fun({FromXY,_}) ->
+                     egol_protocol:query_response(FromXY, {cell_content, {{XY,Time}, Content}})
                  end,
                  Ready),
   NewFuture.
 
-query_neighbours(T, Neighbours) ->
+query_neighbours(XY, T, Neighbours) ->
   lists:foreach( fun(N) ->
-                     egol_protocol:query_content(N, T)
+                     egol_protocol:query_content(N, T, XY)
                  end,
                  Neighbours).
                                                                     
