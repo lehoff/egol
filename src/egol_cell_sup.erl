@@ -30,7 +30,7 @@ start_cell(XY, Dim, InitialContent) ->
 init([]) ->
   RestartStrategy = simple_one_for_one,
   MaxRestarts = 1000,
-  MaxSecondsBetweenRestarts = 3600,
+  MaxSecondsBetweenRestarts = 1,
 
   SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
 
