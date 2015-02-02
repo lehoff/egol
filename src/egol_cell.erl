@@ -322,6 +322,7 @@ collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Content) ->
           collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Content);
         {value, {Ref, NeighbourId}, RestNeighbourRefs} ->
           NewRef = monitor_neighbour(NeighbourId),
+          egol_protocol:query_content(NeighbourId, T, Id),
           collector_loop(WaitingOn, [{NewRef, NeighbourId}|RestNeighbourRefs], 
                          NeighbourCount, Cell, Content)
       end;   
