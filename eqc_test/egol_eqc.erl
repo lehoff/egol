@@ -78,7 +78,7 @@ start() ->
   eqc_mocking:start_mocking(api_spec()),
   catch egol_time:stop(),
   egol_sup:start_link(),
-  await_egol_cell_sup(),
+  %% await_egol_cell_sup(),
   ok.
 
 await_egol_cell_sup() ->
@@ -161,13 +161,17 @@ weight(_S, kill) -> 1;
 weight(_S, _) -> 2.
    
 
+command_precondition_common(S, Cmd) ->
+  S#state.id /= undefined orelse Cmd == cell.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 cell(XY, Dim, Content) ->
-  {ok, Pid} = egol_cell_sup:start_cell(XY, Dim, Content),
-  print("cell STARTED ~p (~p/~p)~n", [Pid, XY, Dim]),
+  {ok, _Pid} = egol_cell_sup:start_cell(XY, Dim, Content),
+  print("cell STARTED (~p/~p)~n", [XY, Dim]),
   Neighbours = start_neighbours(XY, Dim),
-  {Pid, Neighbours}.
+  print("cell neighbours: ~p~n", [Neighbours]),
+  Neighbours,
+  ok.
 
 start_neighbours(XY, Dim) ->
   Nids = egol_util:neighbours(XY, Dim),
@@ -177,7 +181,8 @@ start_neighbour(Nid) ->
   Pid = spawn_link( fun dummy_neigbour_loop/0 ),
   egol_time:set(Nid, 0),
   egol_cell_mgr:reg(Nid, Pid),
-  {Nid, Pid}.
+  %%{Nid, Pid},
+  ok.
 
 dummy_neigbour_loop() ->
   receive
@@ -189,14 +194,16 @@ cell_args(_S) ->
   ?LET({CellId, Dim}, cell_id_and_dim(),
        [CellId, Dim, content()]).
 
-cell_pre(S, _) ->
+cell_pre(S) ->
   S#state.id == undefined.
 
-cell_post(_S, [_, _, _], {Pid, _Neighbours}) ->
-  is_pid(Pid) and erlang:is_process_alive(Pid).
+cell_post(_S, [_, _, _], Neighbours) ->
+  print("cell_post Neighbours: ~p~n", [Neighbours]),
+  true.
+%%  is_pid(Pid) and erlang:is_process_alive(Pid).
 
-cell_next(S, {_Pid, Neighbours}, [CellId, Dim, Content]) ->
-  S#state{id=CellId, dim=Dim, content=Content, neighbours=Neighbours}.
+cell_next(S, _Res, [CellId, Dim, Content]) ->
+  S#state{id=CellId, dim=Dim, content=Content}.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -309,7 +316,6 @@ last_query_response(Resp, {Id, AwaitTime}) ->
 await_time_change(Id, AwaitTime) ->
   case egol_cell:time(Id) of
     AwaitTime ->
-
       ok;
     _ ->
       %% print("await_time_change id ~p~n", [Id]),
@@ -500,7 +506,7 @@ kill_pre(S, [Id, _Dim, EndTime, _, _]) ->
 
 kill_callouts(_S, [_Id, _Dim, 0, _, _]) ->
   ?EMPTY;
-kill_callouts(S, [Id, Dim, EndTime, _NH, _]) ->
+kill_callouts(_S, [Id, Dim, EndTime, _NH, _]) ->
   Neighbours = egol_util:neighbours(Id, Dim),
   StepCallouts = ?SEQ( [ step_callouts_for_time(T, Neighbours, Id) 
                          || T <- lists:seq(0, EndTime-1) ] ),
@@ -519,7 +525,38 @@ kill_next(S, _Pid, [_Id, _Dim, _EndTime, _NH, _]) ->
           neighbour_count=0,
           kill_count=S#state.kill_count+1}.
     
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+kill_neighbour(Nid) ->
+  Pid = egol_cell_mgr:lookup(Nid),
+  exit(Pid, stop),
+  start_neighbour(Nid).
 
+%% kill_neighbour_args(#state{waiting_on=undefined}) ->
+%%   [undefined];
+%% kill_neighbour_args(#state{neighbours=1}) ->
+%%   [undefined];
+kill_neighbour_args(S) ->
+  %% Nids = [ Nid || {Nid, _T} <- S#state.waiting_on ],
+  %% io:format("kill_neighbours_args: ~p  in ~p~n", [Nids, S#state.neighbours]),
+  %% ?LET(Nid, oneof(Nids),
+  %%      lists:keyfind(Nid, 1, S#state.neighbours)).
+  [neighbour(S)].
+                  
+kill_neighbour_pre(#state{waiting_on=undefined}) -> false;
+kill_neighbour_pre(_S) -> true.
+   
+kill_neighbour_callouts(S, [{Nid, _Pid}]) ->
+  Nids = [ N || {N, _T} <- S#state.waiting_on ],
+  case lists:member(Nid, Nids) of 
+    true ->
+      ?CALLOUT(egol_protocol, query_content, [?WILDCARD, S#state.time, S#state.id], ok);
+    false ->
+      ?EMPTY
+  end.
+
+%% kill_neighbour_next(S, _Res, _Args) ->   
+%%   S.
+  
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% GENERATORS
