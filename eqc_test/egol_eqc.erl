@@ -56,20 +56,19 @@ fun() ->
     ok,
              fun() -> stop() end
          end, 
-  with_parameter(default_process, worker,   %% THis is the dirty trick
+%  with_parameter(default_process, worker,   %% THis is the dirty trick
    ?FORALL(Cmds, commands(?MODULE),
  %         ?IMPLIES(length(Cmds)>20,
           begin
 %%            print("Cmds: ~p~n", [Cmds]),
             start(),
-            eqc_mocking:start_mocking(api_spec()),
             {H, S, Res} = run_commands(?MODULE,Cmds),
             stop(S),
             pretty_commands(?MODULE, Cmds, {H, S, Res},
                             aggregate(command_names(Cmds),
                                       Res == ok))
           end))
-)
+%)
 %)
 .
 
@@ -79,9 +78,10 @@ fun() ->
       
 
 start() ->
+  application:start(egol),
   eqc_mocking:start_mocking(api_spec()),
-  catch egol_time:stop(),
-  egol_time:init(),
+  %% catch egol_time:stop(),
+  %% egol_time:init(),
   %%egol_sup:start_link(),
   ok.
 
@@ -89,10 +89,11 @@ start() ->
 stop() ->
   %%  print_regs(),
   %catch exit(whereis(egol_sup), shutdown),
-  catch egol_time:stop(),
+%%  catch egol_time:stop(),
   catch eqc_mocking:stop_mocking(),
-  stop_egol_sup(),
+%%  stop_egol_sup(),
   timer:sleep(100),
+  application:stop(egol),
   ok.
 
 stop_egol_sup() ->
@@ -114,22 +115,23 @@ stop_egol_sup() ->
 
 stop(S) ->
   eqc_mocking:stop_mocking(),
-  catch case egol_cell_mgr:lookup(S#state.id) of
-          undefined ->
-            ok;
-          Pid ->  
-            Ref = monitor(process, Pid),
-            CollectorPid = egol_cell:stop(S#state.id),
-            await_death(Pid, Ref),
-            print("CollectorPid: ~p~n", [CollectorPid]),
-            exit(CollectorPid, stop),
-            await_collector_death(CollectorPid),
-            print("collector is dead~n")
-        end,
-  timer:sleep(50),
+  %% catch case egol_cell_mgr:lookup(S#state.id) of
+  %%         undefined ->
+  %%           ok;
+  %%         Pid ->  
+  %%           Ref = monitor(process, Pid),
+  %%           CollectorPid = egol_cell:stop(S#state.id),
+  %%           await_death(Pid, Ref),
+  %%           print("CollectorPid: ~p~n", [CollectorPid]),
+  %%           exit(CollectorPid, stop),
+  %%           await_collector_death(CollectorPid),
+  %%           print("collector is dead~n")
+  %%       end,
+  timer:sleep(100),
+  application:stop(egol),
   [ catch exit(NPid, stop) || NPid <- S#state.neighbours ],
   %%stop_egol_sup(),
-  %% timer:sleep(100),
+  timer:sleep(100),
   ok.
 
 await_death(Pid, Ref) ->
