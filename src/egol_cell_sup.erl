@@ -19,7 +19,7 @@ start_link() ->
   supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 start_cell(XY, Dim, InitialContent) ->
-  {ok, Pid} = Res = supervisor:start_child(?SERVER, [XY, Dim, InitialContent]),
+  {ok, _Pid} = Res = supervisor:start_child(?SERVER, child_spec(XY, Dim, InitialContent)),
 %%  egol_cell_mgr:reg(XY, Pid),
   Res.
 
@@ -28,20 +28,24 @@ start_cell(XY, Dim, InitialContent) ->
 %%%===================================================================
 
 init([]) ->
-  RestartStrategy = simple_one_for_one,
+  RestartStrategy = one_for_one,
   MaxRestarts = 1000,
   MaxSecondsBetweenRestarts = 1,
 
   SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
 
-  Restart = transient,
-  Shutdown = 2000,
-  Type = worker,
+  %% Restart = transient,
+  %% Shutdown = 10000,
+  %% Type = worker,
 
-  AChild = {egol_cell, {egol_cell, start_link, []},
-            Restart, Shutdown, Type, [egol_cell]},
+  %% AChild = {egol_cell, {egol_cell, start_link, []},
+  %%           Restart, Shutdown, Type, [egol_cell]},
 
-  {ok, {SupFlags, [AChild]}}.
+  {ok, {SupFlags, []}}.
 
+
+child_spec(XY, Dim, InitialContent) ->
+  {{egol_cell, XY}, {egol_cell, start_link, [XY, Dim, InitialContent]},
+   transient, infinity, worker, [egol_cell]}.
 
 
