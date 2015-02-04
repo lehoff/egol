@@ -3,7 +3,6 @@
 -behaviour(supervisor).
 
 -export([start_link/0]).
--export([stop/0]).
 
 -export([init/1]).
 
@@ -13,10 +12,6 @@
 start_link() ->
   egol_time:init(),
   supervisor:start_link({local, ?SERVER}, ?MODULE, []).
-
-stop() ->
-  catch exit(whereis(egol_sup), shutdown),
-  egol_time:stop(). 
 
 
 init([]) ->
