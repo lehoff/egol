@@ -28,8 +28,8 @@ init([]) ->
   %%         Restart, Shutdown, worker, [egol_time]}, 
   CellSup= {egol_cell_sup, {egol_cell_sup, start_link, []},
             Restart, Shutdown, supervisor, [egol_cell_sup]},
-  MgrSup = {egol_cell_mgr, {egol_cell_mgr, start_link, []},
+  CellMgr = {egol_cell_mgr, {egol_cell_mgr, start_link, []},
             Restart, Shutdown, worker, [egol_cell_mgr]},
 
 
-  {ok, {SupFlags, [MgrSup, CellSup]}}.
+  {ok, {SupFlags, [CellMgr, CellSup]}}.
