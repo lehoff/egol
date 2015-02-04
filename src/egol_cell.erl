@@ -7,6 +7,7 @@
 -export([start/3,
          start_link/3,
          kill/1,
+         stop/1,
          where/1]).
 
 %% gen_server callbacks
@@ -337,7 +338,8 @@ collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content) ->
       %%           [self(), XYatT, NeighbourContent]),
       case lists:member(XYatT, WaitingOn) of
         true ->
-          NewNeighbourRefs = lists:keydelete(XY, 2, NeighbourRefs),
+          {value, {Ref, _}, NewNeighbourRefs} = lists:keytake(XY, 2, NeighbourRefs),
+          demonitor(Ref, [flush]),
           collector_loop(lists:delete(XYatT, WaitingOn),
                          NewNeighbourRefs,
                          NeighbourCount + NeighbourContent,
@@ -365,7 +367,7 @@ collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content) ->
           %% collector_loop(WaitingOn, [{NewRef, NeighbourId}|RestNeighbourRefs], 
           %%                NeighbourCount, Cell, Id, Content)
           Self = self(),
-          spawn(fun() -> monitor_neighbour_loop(NeighbourId, Pid, Self) end),
+          spawn_link(fun() -> monitor_neighbour_loop(NeighbourId, Pid, Self) end),
           io:format("collector_loop spawned monitor_neighbour_loop(~p)~n", [NeighbourId]),
           collector_loop(WaitingOn, RestNeighbourRefs, NeighbourCount, Cell, Id, Content)
       end;   
@@ -387,6 +389,8 @@ collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content) ->
 monitor_neighbour_loop(N, Pid, Collector) ->
   case egol_cell_mgr:lookup(N) of
     NewPid when is_pid(NewPid) andalso NewPid /= Pid ->
+      io:format("monitor_neighbour_loop(~p, ~p, ~p) now found ~p~n", 
+                [N, Pid, Collector, NewPid]),
       Collector ! {new_neighbour, {N, NewPid}};
     _ ->
       timer:sleep(3),
