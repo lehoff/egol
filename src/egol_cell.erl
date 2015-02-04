@@ -85,7 +85,10 @@ where(XY) ->
 %%   end.
 
 kill(XY) ->
-  cast(XY, stop).
+  call(XY, kill).
+
+stop(XY) ->
+  call(XY, stop).
 
 set(Cell, Content) ->
   cast(Cell, {set, Content}).
@@ -199,6 +202,8 @@ handle_cast({query_content, Time, From}, State) ->
     end;
 handle_cast(stop, State) ->
   {stop, normal, State};
+handle_cast(kill, State) ->
+  {stop, kill, State};
 handle_cast(Resp, State) ->
   case is_collector_running(State) of
     true ->
@@ -226,7 +231,24 @@ handle_call(collecting_status, From, State) ->
       {noreply, State};
     false ->
       {reply, undefined, State}
-  end.
+  end;
+handle_call(stop, _From, State) ->
+  case is_pid(State#state.collector) of
+    true ->
+      State#state.collector ! stop;
+    false ->
+      ok
+  end,
+  {stop, normal, State#state.collector, State};
+handle_call(kill, _From, State) ->
+    case is_pid(State#state.collector) of
+    true ->
+      State#state.collector ! stop;
+    false ->
+      ok
+  end,
+  {stop, kill, State#state.collector, State}.
+
 
   
 
@@ -268,7 +290,21 @@ handle_info({Collector, {next_content, NextContent}},
 
 terminate(_Reason, State) ->
   egol_time:clear(State#state.xy),
+%  stop_collector(State#state.collector),
   ok.
+
+%% stop_collector(Collector) when is_pid(Collector) ->
+%%   case is_process_alive(Collector) of
+%%     true ->
+%%       io:format("killing collector ~p~n", [Collector]),
+%%       exit(Collector, normal),
+%%       timer:sleep(5),
+%%       stop_collector(Collector);
+%%     false -> 
+%%       ok
+%%   end;
+%% stop_collector(_) ->
+%%   ok.
 
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
@@ -290,11 +326,11 @@ start_collector(#state{time=T, neighbours=Neighbours,
 collector_init(Time, Neighbours, Cell, XY, Content) ->
   NeighbourRefs = monitor_neighbours(Neighbours),
   query_neighbours(XY, Time, Neighbours),
-  collector_loop(egol_util:neighbours_at(Time, Neighbours), NeighbourRefs, 0, Cell, Content).
+  collector_loop(egol_util:neighbours_at(Time, Neighbours), NeighbourRefs, 0, Cell, XY, Content).
 
-collector_loop([], _, NeighbourCount, Cell, Content) ->
+collector_loop([], _, NeighbourCount, Cell, _ID, Content) ->
   Cell ! {self(), {next_content, egol_util:next_content(Content, NeighbourCount)}};
-collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Content) ->
+collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content) ->
   receive
     {cell_content, {{{_,_}=XY,_}=XYatT, NeighbourContent}} ->
       %% io:format("collector ~p got cell_content ~p - ~p~n",
@@ -305,32 +341,58 @@ collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Content) ->
           collector_loop(lists:delete(XYatT, WaitingOn),
                          NewNeighbourRefs,
                          NeighbourCount + NeighbourContent,
-                         Cell, Content);
+                         Cell, Id, Content);
         false %% ignore messages we are not waiting for
               ->
           %% io:format("collector got wrong message ~p~n",
           %%           [Msg]),
-          collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Content)
+          collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id,Content)
       end;
     {status, From} ->
       gen_server:reply(From, {WaitingOn, NeighbourCount}),
-      collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Content);
+      collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content);
     {'DOWN', Ref, process, Pid, Info} ->
       case lists:keytake(Ref, 1, NeighbourRefs) of
         false ->
-          io:format("collector got down for unknown process ~p:~p~n", [Pid, Info]),
-          collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Content);
+          io:format("collector got down for unmonitored process ~p:~p~n", [Pid, Info]),
+          collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content);
         {value, {Ref, NeighbourId}, RestNeighbourRefs} ->
-          NewRef = monitor_neighbour(NeighbourId),
-          egol_protocol:query_content(NeighbourId, T, Id),
-          collector_loop(WaitingOn, [{NewRef, NeighbourId}|RestNeighbourRefs], 
-                         NeighbourCount, Cell, Content)
+          %% NewRef = monitor_neighbour(NeighbourId),
+          %% {_,Time} = hd(WaitingOn),
+          %% io:format("collector loop doing a query_content(~p, ~p, ~p)~n", 
+          %%           [NeighbourId, Time, Id]),
+          %% egol_protocol:query_content(NeighbourId, Time, Id),
+          %% collector_loop(WaitingOn, [{NewRef, NeighbourId}|RestNeighbourRefs], 
+          %%                NeighbourCount, Cell, Id, Content)
+          Self = self(),
+          spawn(fun() -> monitor_neighbour_loop(NeighbourId, Pid, Self) end),
+          io:format("collector_loop spawned monitor_neighbour_loop(~p)~n", [NeighbourId]),
+          collector_loop(WaitingOn, RestNeighbourRefs, NeighbourCount, Cell, Id, Content)
       end;   
+    {new_neighbour, {N, Pid}} ->
+      Ref = monitor(process, Pid),
+      io:format("collector_loop now monitoring new neighbour process for ~p(~p)~n",
+                [N, Pid]),
+      {_,Time} = hd(WaitingOn),
+      egol_protocol:query_content(N, Time, Id),
+      collector_loop(WaitingOn, [{Ref, N}|NeighbourRefs], NeighbourCount, Cell, Id, Content);
+    stop ->
+      exit(normal);
     Garbage ->
       io:format("collector got GARBAGE ~p~n",
                 [Garbage]),
       exit(collector_got_garbage)
   end.
+
+monitor_neighbour_loop(N, Pid, Collector) ->
+  case egol_cell_mgr:lookup(N) of
+    NewPid when is_pid(NewPid) andalso NewPid /= Pid ->
+      Collector ! {new_neighbour, {N, NewPid}};
+    _ ->
+      timer:sleep(3),
+      monitor_neighbour_loop(N, Pid, Collector)
+  end.
+
 
 
 process_future(XY, Time, Content, Future) ->
