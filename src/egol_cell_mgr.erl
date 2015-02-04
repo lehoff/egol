@@ -69,7 +69,7 @@ handle_cast({reg, XY, Pid},
   NewRef = erlang:monitor(process, Pid),
   ets:insert(mgr_xy, {XY, Pid}),
   NextState = State#state{monitors=gb_trees:enter(NewRef, XY, Monitors)},
-  spawn ( fun () -> pacer(Pid, State#state.mode) end ),
+  spawn_link ( fun () -> pacer(Pid, State#state.mode) end ),
   {noreply, NextState};
 handle_cast({set_mode, Mode}, State) ->
   {noreply, State#state{mode=Mode}}.
