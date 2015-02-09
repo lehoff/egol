@@ -279,7 +279,6 @@ test(6) ->
   InitialCells = [{2,3}, {2,5},
                   {3,2}, {3,3}, {3,4},
                   {4,1}, {4,5}],
-  egol_sup:start_link(),
   start(7,6, InitialCells);
 test(simple) -> 
   egol_sup:start_link(),
