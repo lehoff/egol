@@ -10,7 +10,6 @@
     dim,
     content,
     time=0,
-    steps=0,
     waiting_on = undefined,
     neighbour_count = 0,
     neighbour_history = [],
@@ -63,6 +62,7 @@ start() ->
 stop(S) ->
   application:stop(egol),
   [ catch exit(NPid, stop) || NPid <- S#state.neighbours ],
+  timer:sleep(10),
   ok.
 
 
@@ -100,10 +100,6 @@ dummy_neigbour_loop() ->
     _ -> dummy_neigbour_loop()
   end.
       
-  
-
-
-
 cell_args(_S) ->
   ?LET({CellId, Dim}, cell_id_and_dim(),
        [CellId, Dim, content()]).
@@ -113,7 +109,7 @@ cell_pre(S) ->
 
 cell_post(_S, [Id, _, _], _Neighbours) ->
   Pid = egol_cell_mgr:lookup(Id),
-  is_pid(Pid) and erlang:is_process_alive(Pid).
+  is_pid(Pid) andalso erlang:is_process_alive(Pid).
 
 cell_next(S, Res, [CellId, Dim, Content]) ->
   S#state{id=CellId, dim=Dim, content=Content, neighbours=Res}.
@@ -122,40 +118,47 @@ cell_next(S, Res, [CellId, Dim, Content]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 step(Id, _Dim, _Time) ->
   egol_cell:step(Id),
-  await_collecting_status(Id).
+  await_collecting_status(Id, 10).
 
 
-await_collecting_status(Id) ->
+await_collecting_status(_Id, 0) ->
+  step_error;
+await_collecting_status(Id, N) ->
   case egol_cell:collecting_status(Id) of
     undefined ->
       timer:sleep(5),
-      await_collecting_status(Id);
+      await_collecting_status(Id, N-1);
     _ ->
-      ok
+      step_success
   end.
-
-
       
 step_args(S) ->
   [S#state.id, S#state.dim, S#state.time].
 
-step_pre(S, [Id, Dim, Time]) ->
+step_pre(S) ->
   S#state.id /= undefined andalso
-    S#state.id == Id andalso
-    S#state.dim == Dim andalso
-    S#state.time == Time andalso
     S#state.waiting_on == undefined.
+
+step_pre(S, [XY, Dim, Time]) ->
+  S#state.id  == XY andalso
+    S#state.dim == Dim andalso
+    S#state.time == Time.
 
 step_callouts(_S, [XY, Dim, Time ]) ->
   step_callouts_for_time(Time, egol_util:neighbours(XY, Dim), XY).
 
-step_callouts_for_time(Time, _Neighbours, XY) ->
+step_callouts_for_time(Time, Neighbours, XY) ->
   Queries = lists:duplicate(8, ?CALLOUT(egol_protocol, query_content, [?WILDCARD, Time, XY], ok)),
+  %% Queries = [ ?CALLOUT(egol_protocol, query_content, [N, Time, XY], ok) 
+  %%             || N <- Neighbours ],
+  %% io:format("Queries ~p~n", [Queries]),
   ?PAR(Queries).
 
+step_post(_S, _Args, Res) ->
+  Res == step_success.
+
 step_next(S, _Res, _Args) ->
-  S#state{waiting_on = egol_util:neighbours(S#state.id, S#state.dim),
-          steps=S#state.steps+1}.
+  S#state{waiting_on = egol_util:neighbours(S#state.id, S#state.dim)}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 get(Id, Time) ->
@@ -164,8 +167,10 @@ get(Id, Time) ->
 get_args(S) ->
   [S#state.id, S#state.time].
 
+get_pre(S) ->
+  S#state.id /= undefined.
+
 get_pre(S, [Id, Time]) ->
-  S#state.id /= undefined andalso
     S#state.id == Id andalso
     S#state.time == Time.
 
@@ -188,10 +193,9 @@ neighbour_response(S) ->
            Resp
        end). 
 
-query_response_pre(#state{waiting_on=undefined}) -> false;
-query_response_pre(#state{waiting_on=W}) when length (W) =< 1 -> false; 
-query_response_pre(_S) -> true.
-  
+query_response_pre(S) ->
+  is_list(S#state.waiting_on) andalso 
+    length(S#state.waiting_on) > 1.  
 
 query_response_pre(S, [Id, {{Neighbour, Time}, _}] ) ->
   Id /= undefined andalso
@@ -208,15 +212,17 @@ query_response_next(S, _Res, [_, {{Neighbour, _Time}, Content}=Resp]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 last_query_response(Resp, {Id, AwaitTime}) ->
   send_query_response(Id, Resp),
-  await_time_change(Id, AwaitTime).
+  await_time_change(Id, AwaitTime, 50).
 
-await_time_change(Id, AwaitTime) ->
+await_time_change(_, _, 0) ->
+  error;
+await_time_change(Id, AwaitTime, N) ->
   case egol_cell:time(Id) of
     AwaitTime ->
       ok;
     _ ->
       timer:sleep(5),
-      await_time_change(Id, AwaitTime)
+      await_time_change(Id, AwaitTime, N-1)
   end.
 
 
@@ -228,9 +234,11 @@ cell_content(#state{id=Id, time=Time, content=Content}) ->
 
 last_query_response_pre(#state{waiting_on=[_]}) -> true;
 last_query_response_pre(_S) -> false. 
-  
-
-
+ 
+last_query_respones_pre(S, [_, {Id, AwaitTime}]) ->
+  S#state.id == Id andalso
+    (S#state.time + 1) == AwaitTime.
+ 
 last_query_response_callouts(#state{pending_query_content=[]}, _) ->
   ?EMPTY;
 last_query_response_callouts(S, [{_, Content}, _]) ->
@@ -239,6 +247,9 @@ last_query_response_callouts(S, [{_, Content}, _]) ->
   ?PAR([?CALLOUT(egol_protocol, query_response, 
                  [?WILDCARD, cell_content_msg(S#state.id, NeighbourTime, NextContent)], ok)
         || {_NeighbourId, NeighbourTime} <- S#state.pending_query_content]).
+
+last_query_response_post(_S, _Args, Res) ->
+  Res == ok.
 
 last_query_response_next(S, _Res, [{_, Content}=Resp, _AwaitIdTime]) ->
   NC = S#state.neighbour_count + Content,
@@ -254,14 +265,16 @@ last_query_response_next(S, _Res, [{_, Content}=Resp, _AwaitIdTime]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 query_content(Id, Time) ->
   send_query_content(Id, Time),
-  timer:sleep(50),
+  _ = egol_cell:collecting_status(Id),
   ok.
 
 query_content_args(S) ->
   [S#state.id, S#state.time].
 
+query_content_pre(S) ->
+  S#state.id /= undefined.
+
 query_content_pre(S, [Id, Time]) ->
-  S#state.id /= undefined andalso
     S#state.id == Id andalso
     S#state.time == Time.
     
@@ -312,6 +325,7 @@ kill(Id, _Dim, EndTime, NeighbourHistory) ->
   OldPid = egol_cell_mgr:lookup(Id),
   egol_cell:kill(Id),
   await_new_cell_pid(OldPid, Id),
+  timer:sleep(50),
   _ = egol_cell:collecting_status(Id),
   drive_collector(Id, 0, EndTime, NeighbourHistory),
   timer:sleep(50),
@@ -336,9 +350,14 @@ drive_collector(Id, T, EndTime, NeighbourHistory) ->
                       || {{_,RTime},_}=R <- NeighbourHistory,
                          RTime == T ],
   send_all_query_responses(Id, ResponsesForTime),
-  await_time_change(Id, T),
-  _ = egol_cell:collecting_status(Id),
-  drive_collector(Id, T+1, EndTime, NeighbourHistory).
+  case await_time_change(Id, T, 20) of
+    ok ->
+      timer:sleep(50),
+      _ = egol_cell:collecting_status(Id),
+      drive_collector(Id, T+1, EndTime, NeighbourHistory);
+    error ->
+      error
+  end.
 
 send_all_query_responses(Id, NeighbourHistory) ->
     lists:foreach(fun(CellContent) ->
@@ -349,12 +368,13 @@ send_all_query_responses(Id, NeighbourHistory) ->
 kill_args(#state{id=Id, dim=Dim, time=Time, neighbour_history=NH}) ->
   [Id, Dim, Time, NH].
 
-kill_pre(S, [Id, _Dim, EndTime, _]) ->
+kill_pre(S) ->
   S#state.id /= undefined andalso
-    S#state.id == Id andalso 
-    S#state.time == EndTime andalso
     S#state.kill_count<1.
 
+kill_pre(S, [Id, _Dim, EndTime, _]) ->
+    S#state.id == Id andalso 
+    S#state.time == EndTime.
 
 kill_callouts(_S, [_Id, _Dim, 0, _]) ->
   ?EMPTY;
@@ -363,6 +383,9 @@ kill_callouts(_S, [Id, Dim, EndTime, _NH]) ->
   StepCallouts = ?SEQ( [ step_callouts_for_time(T, Neighbours, Id) 
                          || T <- lists:seq(0, EndTime-1) ] ),
   StepCallouts.
+
+kill_post(_S, _Args, Res) ->
+  Res == ok.
 
 kill_next(S, _Pid, [_Id, _Dim, _EndTime, _NH]) ->
   S#state{waiting_on=undefined,
