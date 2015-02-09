@@ -1,7 +1,10 @@
 {application,egol,
              [{description,"EGOL - Erlang Game Of Life"},
               {vsn,"0.0.1"},
-              {modules,[egol]},
-              {registered,[]},
+              {modules,[egol_app, egol_sup, 
+                        egol_cell_sup, egol_cell,
+                        egol_cell_mgr]},
+              {registered,[egol_sup, egol_cell_sup, egol_cell_mgr]},
               {applications,[kernel, stdlib, lager]},
+              {mod, {egol_app, []}},
               {start_phases,[]}]}. 
