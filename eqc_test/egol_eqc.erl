@@ -52,7 +52,6 @@ prop_cell() ->
 fun() -> 
              %% setup mocking here
     %% eqc_mocking:start_mocking(api_spec()),
-     egol_sup:start_link(),
     ok,
              fun() -> stop() end
          end, 
@@ -78,86 +77,28 @@ fun() ->
       
 
 start() ->
-  application:start(egol),
+  {ok, _} = application:ensure_all_started(egol),
+  print("egol_cell_sup: ~p~n", [sys:get_state(egol_cell_sup)]),
   eqc_mocking:start_mocking(api_spec()),
-  %% catch egol_time:stop(),
-  %% egol_time:init(),
-  %%egol_sup:start_link(),
   ok.
 
 
 stop() ->
-  %%  print_regs(),
-  %catch exit(whereis(egol_sup), shutdown),
-%%  catch egol_time:stop(),
   catch eqc_mocking:stop_mocking(),
-%%  stop_egol_sup(),
-  timer:sleep(100),
-  application:stop(egol),
+%  timer:sleep(100),
   ok.
 
-stop_egol_sup() ->
-  case whereis(egol_sup) of
-    undefined -> 
-      ok;
-    Pid ->
-      Ref = monitor(process, Pid),
-      catch exit(Pid, shutdown),
-      receive
-        {'DOWN', Ref, process, Pid, _Reason} ->
-          ok
-      after 1000 ->
-          print("egol_sup not going down~n"),
-          error(exit_timeout)
-      end
-  end.
 
 
 stop(S) ->
+  print("stop(S)~n"),
   eqc_mocking:stop_mocking(),
-  %% catch case egol_cell_mgr:lookup(S#state.id) of
-  %%         undefined ->
-  %%           ok;
-  %%         Pid ->  
-  %%           Ref = monitor(process, Pid),
-  %%           CollectorPid = egol_cell:stop(S#state.id),
-  %%           await_death(Pid, Ref),
-  %%           print("CollectorPid: ~p~n", [CollectorPid]),
-  %%           exit(CollectorPid, stop),
-  %%           await_collector_death(CollectorPid),
-  %%           print("collector is dead~n")
-  %%       end,
-  timer:sleep(100),
   application:stop(egol),
   [ catch exit(NPid, stop) || NPid <- S#state.neighbours ],
-  %%stop_egol_sup(),
-  timer:sleep(100),
+%  timer:sleep(100),
   ok.
 
-await_death(Pid, Ref) ->
-  %% case erlang:is_process_alive(Pid) of
-  %%   true ->
-  %%     print("await death~n"),
-  %%     timer:sleep(5),
-  %%     await_death(Pid);
-  %%   false ->
-  %%     ok
-  %% end.
-  receive 
-    {'DOWN', Ref, process, Pid, _Reason} ->
-      print("await death DONE~n")
-  end.
 
-await_collector_death(Pid) when is_pid(Pid) ->
-  case is_process_alive(Pid) of
-    true ->
-      timer:sleep(5),
-      await_collector_death(Pid);
-    false ->
-      ok
-  end;
-await_collector_death(_) ->
-  true.
 
 
 %%weight(_S, kill) -> 0;
@@ -184,8 +125,11 @@ command_precondition_common(S, Cmd) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 cell(XY, Dim, Content) ->
   {ok, _Pid} = egol_cell_sup:start_cell(XY, Dim, Content),
+  print("process_count:~p~n", [erlang:system_info(process_count)]),
   print("cell STARTED (~p/~p)~n", [XY, Dim]),
+  print("process_count:~p~n", [erlang:system_info(process_count)]),
   Neighbours = start_neighbours(XY, Dim),
+  print("process_count:~p~n", [erlang:system_info(process_count)]),
 %  monitor_dummies(Neighbours),
   %% print("cell neighbours: ~p~n", [Neighbours]),
   Neighbours.
@@ -227,10 +171,10 @@ cell_args(_S) ->
 cell_pre(S) ->
   S#state.id == undefined.
 
-cell_post(_S, [_, _, _], _Neighbours) ->
+cell_post(_S, [Id, _, _], _Neighbours) ->
 %%  print("cell_post Neighbours: ~p~n", [Neighbours]),
-  true.
-%%  is_pid(Pid) and erlang:is_process_alive(Pid).
+  Pid = egol_cell_mgr:lookup(Id),
+  is_pid(Pid) and erlang:is_process_alive(Pid).
 
 cell_next(S, Res, [CellId, Dim, Content]) ->
   S#state{id=CellId, dim=Dim, content=Content, neighbours=Res}.
@@ -239,7 +183,9 @@ cell_next(S, Res, [CellId, Dim, Content]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 step(Id, _Dim, _Time) ->
   print("step for ~p~n", [Id]),
+  print("process_count:~p~n", [erlang:system_info(process_count)]),
   egol_cell:step(Id),
+  print("process_count:~p~n", [erlang:system_info(process_count)]),
   await_collecting_status(Id).
 
 
@@ -301,6 +247,7 @@ get_post(S, [_Id, _Time], Res) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 query_response(Id, Resp) ->
   print("query_response(~p, ~p)~n", [Id, Resp]),
+  print("process_count:~p~n", [erlang:system_info(process_count)]),
   send_query_response(Id, Resp).
   
 query_response_args(S) ->
@@ -448,21 +395,21 @@ query_future_next(S, _Res, [_Id, NeighbourId, Time]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 kill(Id, _Dim, 0, _, PendingQueryContent) ->
   print("kill(~p, _, 0, _, ~p)~n", [Id, PendingQueryContent]),
-  try 
+  %% try 
     OldPid = egol_cell_mgr:lookup(Id),
     %print("killing ~p~n", [OldPid]),
     egol_cell:kill(Id),
     await_new_cell_pid(OldPid, Id),
     %print("started ~p~n", [NewPid]),
     %resend_pending_query_content(Id, PendingQueryContent),
-    ok
-  catch
-    E:M ->
-      print("kill exception ~p:~p ~p~n", [E, M, erlang:get_stacktrace()])
-  end;
+    ok;
+  %% catch
+  %%   E:M ->
+  %%     print("kill exception ~p:~p ~p~n", [E, M, erlang:get_stacktrace()])
+  %% end;
 kill(Id, _Dim, EndTime, NeighbourHistory, PendingQueryContent) ->
   print("kill(~p, _, ~p, ~p, ~p)~n", [Id, EndTime, NeighbourHistory, PendingQueryContent]),
-  try
+  %% try
     OldPid = egol_cell_mgr:lookup(Id),
     egol_cell:kill(Id),
     await_new_cell_pid(OldPid, Id),
@@ -472,11 +419,11 @@ kill(Id, _Dim, EndTime, NeighbourHistory, PendingQueryContent) ->
     %%print("new collector: ~p~n", [Collector]),
     drive_collector(Id, 0, EndTime, NeighbourHistory),
     timer:sleep(50),
-    ok
-  catch
-    E:M ->
-      print("kill exception ~p:~p ~p~n", [E, M, erlang:get_stacktrace()])
-  end.
+    ok.
+  %% catch
+  %%   E:M ->
+  %%     print("kill exception ~p:~p ~p~n", [E, M, erlang:get_stacktrace()])
+  %% end.
 
 resend_pending_query_content(Id, PendingQueryContent) ->
     %print("started ~p~n", [NewPid]),
