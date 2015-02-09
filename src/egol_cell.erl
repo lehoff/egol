@@ -54,9 +54,9 @@
           neighbours}).
 
 start({X,Y}=XY, {DimX, DimY}=Dim, InitialContent) 
-  when X < DimX;
-       0 =< X;
-       Y < DimY;
+  when X < DimX,
+       0 =< X,
+       Y < DimY,
        0 =< Y ->
   gen_server:start(?MODULE,  
                    #state{xy=XY, dim=Dim, content=InitialContent,
@@ -64,9 +64,9 @@ start({X,Y}=XY, {DimX, DimY}=Dim, InitialContent)
                    []).
 
 start_link({X,Y}=XY, {DimX, DimY}=Dim, InitialContent) 
-  when X < DimX;
-       0 =< X;
-       Y < DimY;
+  when X < DimX,
+       0 =< X,
+       Y < DimY,
        0 =< Y ->
   gen_server:start_link(?MODULE, 
                         #state{xy=XY, dim=Dim, content=InitialContent,
