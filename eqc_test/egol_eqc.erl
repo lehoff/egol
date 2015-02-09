@@ -199,7 +199,7 @@ query_response_pre(S) ->
 
 query_response_pre(S, [Id, {{Neighbour, Time}, _}] ) ->
   Id /= undefined andalso
-  S#state.waiting_on /= [] andalso
+  is_list(S#state.waiting_on) andalso
   lists:member(Neighbour, S#state.waiting_on) andalso
     Time == S#state.time.
 
@@ -235,7 +235,7 @@ cell_content(#state{id=Id, time=Time, content=Content}) ->
 last_query_response_pre(#state{waiting_on=[_]}) -> true;
 last_query_response_pre(_S) -> false. 
  
-last_query_respones_pre(S, [_, {Id, AwaitTime}]) ->
+last_query_response_pre(S, [_, {Id, AwaitTime}]) ->
   S#state.id == Id andalso
     (S#state.time + 1) == AwaitTime.
  
