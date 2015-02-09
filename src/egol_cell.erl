@@ -356,7 +356,7 @@ collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content) ->
     {'DOWN', Ref, process, Pid, Info} ->
       case lists:keytake(Ref, 1, NeighbourRefs) of
         false ->
-          io:format("collector got down for unmonitored process ~p:~p~n", [Pid, Info]),
+          %% io:format("collector got down for unmonitored process ~p:~p~n", [Pid, Info]),
           collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content);
         {value, {Ref, NeighbourId}, RestNeighbourRefs} ->
           %% NewRef = monitor_neighbour(NeighbourId),
@@ -368,13 +368,13 @@ collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content) ->
           %%                NeighbourCount, Cell, Id, Content)
           Self = self(),
           spawn_link(fun() -> monitor_neighbour_loop(NeighbourId, Pid, Self) end),
-          io:format("collector_loop spawned monitor_neighbour_loop(~p)~n", [NeighbourId]),
+          %% io:format("collector_loop spawned monitor_neighbour_loop(~p)~n", [NeighbourId]),
           collector_loop(WaitingOn, RestNeighbourRefs, NeighbourCount, Cell, Id, Content)
       end;   
     {new_neighbour, {N, Pid}} ->
       Ref = monitor(process, Pid),
-      io:format("collector_loop now monitoring new neighbour process for ~p(~p)~n",
-                [N, Pid]),
+      %% io:format("collector_loop now monitoring new neighbour process for ~p(~p)~n",
+      %%           [N, Pid]),
       {_,Time} = hd(WaitingOn),
       egol_protocol:query_content(N, Time, Id),
       collector_loop(WaitingOn, [{Ref, N}|NeighbourRefs], NeighbourCount, Cell, Id, Content);
@@ -389,8 +389,8 @@ collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content) ->
 monitor_neighbour_loop(N, Pid, Collector) ->
   case egol_cell_mgr:lookup(N) of
     NewPid when is_pid(NewPid) andalso NewPid /= Pid ->
-      io:format("monitor_neighbour_loop(~p, ~p, ~p) now found ~p~n", 
-                [N, Pid, Collector, NewPid]),
+      %% io:format("monitor_neighbour_loop(~p, ~p, ~p) now found ~p~n", 
+      %%           [N, Pid, Collector, NewPid]),
       Collector ! {new_neighbour, {N, NewPid}};
     _ ->
       timer:sleep(3),
