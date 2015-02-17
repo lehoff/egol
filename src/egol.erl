@@ -254,9 +254,6 @@ test(2) ->
 test(3) ->
   egol_sup:start_link(),
   start(8,8,test(2));
-test(100) -> 
-  egol__sup:start_link(),
-  start(100,100,test(2));
 test(4) ->
   test(3),
   timer:sleep(50),
@@ -281,13 +278,7 @@ test(6) ->
                   {4,1}, {4,5}],
   start(7,6, InitialCells);
 test(simple) -> 
-  egol_sup:start_link(),
   start(4,4,test(2));
 test(N) -> 
-  egol_sup:start_link(),
   start(N,N,test(2)).
        
-  
-
-  
-  
