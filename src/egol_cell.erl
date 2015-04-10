@@ -367,7 +367,7 @@ collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content) ->
           %% collector_loop(WaitingOn, [{NewRef, NeighbourId}|RestNeighbourRefs], 
           %%                NeighbourCount, Cell, Id, Content)
           Self = self(),
-          spawn_link(fun() -> monitor_neighbour_loop(NeighbourId, Pid, Self) end),
+          spawn_link(fun() -> await_new_neighbour(NeighbourId, Pid, Self) end),
           %% io:format("collector_loop spawned monitor_neighbour_loop(~p)~n", [NeighbourId]),
           collector_loop(WaitingOn, RestNeighbourRefs, NeighbourCount, Cell, Id, Content)
       end;   
@@ -386,7 +386,7 @@ collector_loop(WaitingOn, NeighbourRefs, NeighbourCount, Cell, Id, Content) ->
       exit(collector_got_garbage)
   end.
 
-monitor_neighbour_loop(N, Pid, Collector) ->
+await_new_neighbour(N, Pid, Collector) ->
   case egol_cell_mgr:lookup(N) of
     NewPid when is_pid(NewPid) andalso NewPid /= Pid ->
       %% io:format("monitor_neighbour_loop(~p, ~p, ~p) now found ~p~n", 
@@ -394,7 +394,7 @@ monitor_neighbour_loop(N, Pid, Collector) ->
       Collector ! {new_neighbour, {N, NewPid}};
     _ ->
       timer:sleep(3),
-      monitor_neighbour_loop(N, Pid, Collector)
+      await_new_neighbour(N, Pid, Collector)
   end.
 
 

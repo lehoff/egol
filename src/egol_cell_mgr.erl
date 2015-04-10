@@ -69,7 +69,7 @@ handle_cast({reg, XY, Pid},
   NewRef = erlang:monitor(process, Pid),
   ets:insert(mgr_xy, {XY, Pid}),
   NextState = State#state{monitors=gb_trees:enter(NewRef, XY, Monitors)},
-  spawn_link ( fun () -> pacer(Pid, State#state.mode) end ),
+  kickoff_cell(Pid, State#state.mode),
   {noreply, NextState};
 handle_cast({set_mode, Mode}, State) ->
   {noreply, State#state{mode=Mode}}.
@@ -89,12 +89,12 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-pacer(Pid, step) ->
+kickoff_cell(Pid, step) ->
   EndTime = egol_time:max(),
   egol_cell:run_until(Pid, EndTime);
-pacer(Pid, {run_until, EndTime}) ->
+kickoff_cell(Pid, {run_until, EndTime}) ->
   egol_cell:run_until(Pid, EndTime);
-pacer(Pid, run) ->
+kickoff_cell(Pid, run) ->
   egol_cell:run(Pid).
 
       
